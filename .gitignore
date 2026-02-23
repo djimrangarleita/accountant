@@ -44,3 +44,5 @@ app.*.map.json
 
 # FVM Version Cache
 .fvm/
+
+lib/app_secrets.dart

@@ -16,6 +16,9 @@ class IncomeDatabase {
 
   static const String hourlyRateKey = 'hourly_rate';
   static const String lastHoursKey = 'last_hours';
+  static const String fxAdjustmentKey = 'fx_adjustment_percent';
+  static const String fxUsdXafRateKey = 'fx_usd_xaf_rate';
+  static const String fxUsdXafTimestampKey = 'fx_usd_xaf_timestamp';
 
   Future<Database> get database async {
     final existing = _database;
@@ -119,6 +122,33 @@ class IncomeDatabase {
     return double.tryParse(valueStr);
   }
 
+  Future<void> _setConfigString(String key, String value) async {
+    final db = await database;
+    await db.insert(
+      _configTable,
+      {
+        _configKeyColumn: key,
+        _configValueColumn: value,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<String?> _getConfigString(String key) async {
+    final db = await database;
+    final maps = await db.query(
+      _configTable,
+      columns: [_configValueColumn],
+      where: '$_configKeyColumn = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+
+    if (maps.isEmpty) return null;
+    final valueStr = maps.first[_configValueColumn] as String?;
+    return valueStr;
+  }
+
   Future<void> setHourlyRate(double rate) =>
       _setConfigDouble(hourlyRateKey, rate);
 
@@ -128,5 +158,26 @@ class IncomeDatabase {
       _setConfigDouble(lastHoursKey, hours);
 
   Future<double?> getLastHours() => _getConfigDouble(lastHoursKey);
+
+  Future<void> setFxAdjustmentPercent(double percent) =>
+      _setConfigDouble(fxAdjustmentKey, percent);
+
+  /// Returns the adjustment in percent (e.g. -10, 0, +10). Defaults to 0.
+  Future<double> getFxAdjustmentPercent() async =>
+      (await _getConfigDouble(fxAdjustmentKey)) ?? 0.0;
+
+  Future<void> setCachedUsdToXafRate(double rate, DateTime asOf) async {
+    await _setConfigDouble(fxUsdXafRateKey, rate);
+    await _setConfigString(fxUsdXafTimestampKey, asOf.toUtc().toIso8601String());
+  }
+
+  Future<double?> getCachedUsdToXafRate() =>
+      _getConfigDouble(fxUsdXafRateKey);
+
+  Future<DateTime?> getCachedUsdToXafRateTimestamp() async {
+    final raw = await _getConfigString(fxUsdXafTimestampKey);
+    if (raw == null) return null;
+    return DateTime.tryParse(raw);
+  }
 }
 

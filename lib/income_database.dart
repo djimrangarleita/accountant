@@ -2,6 +2,7 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'income_entry.dart';
+import 'project.dart';
 
 class IncomeDatabase {
   IncomeDatabase._internal();
@@ -20,6 +21,9 @@ class IncomeDatabase {
   static const String fxUsdXafRateKey = 'fx_usd_xaf_rate';
   static const String fxUsdXafTimestampKey = 'fx_usd_xaf_timestamp';
 
+  static const String _projectsTable = 'projects';
+  static const String _fxCacheTable = 'fx_cache';
+
   Future<Database> get database async {
     final existing = _database;
     if (existing != null) return existing;
@@ -35,14 +39,22 @@ class IncomeDatabase {
 
     return openDatabase(
       path,
-      version: 2,
+      version: 4,
       onCreate: (db, version) async {
         await _createIncomeEntriesTable(db);
         await _createConfigTable(db);
+        await _createProjectsTable(db);
+        await _createFxCacheTable(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await _createConfigTable(db);
+        }
+        if (oldVersion < 3) {
+          await _createProjectsTable(db);
+        }
+        if (oldVersion < 4) {
+          await _createFxCacheTable(db);
         }
       },
     );
@@ -64,6 +76,29 @@ class IncomeDatabase {
       CREATE TABLE IF NOT EXISTS $_configTable(
         $_configKeyColumn TEXT PRIMARY KEY,
         $_configValueColumn TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createProjectsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_projectsTable(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        hourlyRate REAL NOT NULL,
+        baseCurrency TEXT NOT NULL,
+        totalHours REAL NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createFxCacheTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_fxCacheTable(
+        pair TEXT PRIMARY KEY,
+        rate REAL NOT NULL,
+        asOf TEXT NOT NULL
       )
     ''');
   }
@@ -178,6 +213,110 @@ class IncomeDatabase {
     final raw = await _getConfigString(fxUsdXafTimestampKey);
     if (raw == null) return null;
     return DateTime.tryParse(raw);
+  }
+
+  Future<void> setCachedFxRate({
+    required String from,
+    required String to,
+    required double rate,
+    required DateTime asOf,
+  }) async {
+    final pair = '${from.toUpperCase()}_${to.toUpperCase()}';
+    final db = await database;
+    await db.insert(
+      _fxCacheTable,
+      {
+        'pair': pair,
+        'rate': rate,
+        'asOf': asOf.toUtc().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<({double rate, DateTime asOf})?> getCachedFxRate({
+    required String from,
+    required String to,
+  }) async {
+    final pair = '${from.toUpperCase()}_${to.toUpperCase()}';
+    final db = await database;
+    final maps = await db.query(
+      _fxCacheTable,
+      where: 'pair = ?',
+      whereArgs: [pair],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+
+    final rate = maps.first['rate'];
+    final asOfRaw = maps.first['asOf'];
+    if (rate is! num || asOfRaw is! String) return null;
+
+    final asOf = DateTime.tryParse(asOfRaw);
+    if (asOf == null) return null;
+    return (rate: rate.toDouble(), asOf: asOf);
+  }
+
+  // Projects API.
+  Future<Project> createProject({
+    required String name,
+    required double hourlyRate,
+    required String baseCurrency,
+  }) async {
+    final db = await database;
+    final now = DateTime.now().toUtc();
+    final id = await db.insert(
+      _projectsTable,
+      {
+        'name': name,
+        'hourlyRate': hourlyRate,
+        'baseCurrency': baseCurrency,
+        'totalHours': 0.0,
+        'updatedAt': now.toIso8601String(),
+      },
+    );
+    return Project(
+      id: id,
+      name: name,
+      hourlyRate: hourlyRate,
+      baseCurrency: baseCurrency,
+      totalHours: 0.0,
+      updatedAt: now,
+    );
+  }
+
+  Future<List<Project>> getProjects() async {
+    final db = await database;
+    final maps = await db.query(
+      _projectsTable,
+      orderBy: 'updatedAt DESC',
+    );
+    return maps.map(Project.fromMap).toList();
+  }
+
+  Future<void> updateProject(Project project) async {
+    if (project.id == null) {
+      throw ArgumentError('Project id is required for update.');
+    }
+    final db = await database;
+    await db.update(
+      _projectsTable,
+      project.toMap(),
+      where: 'id = ?',
+      whereArgs: [project.id],
+    );
+  }
+
+  Future<Project?> getProjectById(int id) async {
+    final db = await database;
+    final maps = await db.query(
+      _projectsTable,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return Project.fromMap(maps.first);
   }
 }
 

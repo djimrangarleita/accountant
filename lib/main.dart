@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'income_database.dart';
+
 void main() {
   runApp(const MyApp());
 }
@@ -7,46 +9,50 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
+    final colorScheme = const ColorScheme(
+      brightness: Brightness.light,
+      primary: Colors.black,
+      onPrimary: Colors.white,
+      secondary: Colors.grey,
+      onSecondary: Colors.white,
+      error: Colors.red,
+      onError: Colors.white,
+      background: Colors.white,
+      onBackground: Colors.black,
+      surface: Colors.white,
+      onSurface: Colors.black,
+    );
+
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Hourly Income',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: colorScheme,
+        scaffoldBackgroundColor: colorScheme.background,
+        appBarTheme: AppBarTheme(
+          backgroundColor: colorScheme.surface,
+          foregroundColor: colorScheme.onSurface,
+          elevation: 0,
+        ),
+        inputDecorationTheme: const InputDecorationTheme(
+          border: OutlineInputBorder(),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: colorScheme.primary,
+            foregroundColor: colorScheme.onPrimary,
+          ),
+        ),
         useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const MyHomePage(title: 'Hourly income calculator'),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
 
   final String title;
 
@@ -55,71 +61,342 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+  final TextEditingController _hoursController = TextEditingController();
+  final TextEditingController _minutesController = TextEditingController();
+  final TextEditingController _secondsController = TextEditingController();
 
-  void _incrementCounter() {
+  bool _isLoading = true;
+  double? _hourlyRate;
+  double? _calculatedTotal;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialData();
+  }
+
+  @override
+  void dispose() {
+    _hoursController.dispose();
+    _minutesController.dispose();
+    _secondsController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadInitialData() async {
+    final db = IncomeDatabase.instance;
+    final hourlyRate = await db.getHourlyRate();
+    final lastHours = await db.getLastHours();
+
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _hourlyRate = hourlyRate;
+      if (lastHours != null) {
+        final totalSeconds = (lastHours * 3600).round();
+        final hours = totalSeconds ~/ 3600;
+        final remainingSeconds = totalSeconds % 3600;
+        final minutes = remainingSeconds ~/ 60;
+        final seconds = remainingSeconds % 60;
+
+        _hoursController.text = hours.toString();
+        _minutesController.text = minutes.toString();
+        _secondsController.text = seconds.toString();
+
+        if (hourlyRate != null) {
+          _calculatedTotal = hourlyRate * lastHours;
+        }
+      } else {
+        _hoursController.text = '0';
+        _minutesController.text = '0';
+        _secondsController.text = '0';
+      }
+      _isLoading = false;
     });
+  }
+
+  Future<void> _calculate() async {
+    final rawHours = _hoursController.text.trim().replaceAll(',', '');
+    final rawMinutes = _minutesController.text.trim().replaceAll(',', '');
+    final rawSeconds = _secondsController.text.trim().replaceAll(',', '');
+
+    if (rawHours.isEmpty && rawMinutes.isEmpty && rawSeconds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter at least one time value')),
+      );
+      return;
+    }
+
+    final hours = rawHours.isEmpty ? 0.0 : double.tryParse(rawHours);
+    if (hours == null || hours < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid value for hours (can be decimal)'),
+        ),
+      );
+      return;
+    }
+
+    final minutes =
+        rawMinutes.isEmpty ? 0 : int.tryParse(rawMinutes);
+    final seconds =
+        rawSeconds.isEmpty ? 0 : int.tryParse(rawSeconds);
+
+    if (minutes == null || minutes < 0 || minutes >= 60) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Minutes must be a number between 0 and 59'),
+        ),
+      );
+      return;
+    }
+
+    if (seconds == null || seconds < 0 || seconds >= 60) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Seconds must be a number between 0 and 59'),
+        ),
+      );
+      return;
+    }
+
+    final totalHours =
+        hours + minutes / 60.0 + seconds / 3600.0;
+
+    if (_hourlyRate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Set your hourly rate in settings first'),
+        ),
+      );
+      return;
+    }
+
+    await IncomeDatabase.instance.setLastHours(totalHours);
+
+    setState(() {
+      _calculatedTotal = totalHours * _hourlyRate!;
+    });
+  }
+
+  Future<void> _openSettings() async {
+    final newRate = await Navigator.of(context).push<double>(
+      MaterialPageRoute(
+        builder: (_) => SettingsPage(
+          initialHourlyRate: _hourlyRate,
+        ),
+      ),
+    );
+
+    if (newRate != null) {
+      setState(() {
+        _hourlyRate = newRate;
+        final rawHours = _hoursController.text.trim().replaceAll(',', '');
+        final rawMinutes = _minutesController.text.trim().replaceAll(',', '');
+        final rawSeconds = _secondsController.text.trim().replaceAll(',', '');
+
+        final hours =
+            rawHours.isEmpty ? 0.0 : double.tryParse(rawHours);
+        final minutes =
+            rawMinutes.isEmpty ? 0 : int.tryParse(rawMinutes);
+        final seconds =
+            rawSeconds.isEmpty ? 0 : int.tryParse(rawSeconds);
+
+        if (hours != null && minutes != null && seconds != null) {
+          final totalHours =
+              hours + minutes / 60.0 + seconds / 3600.0;
+          _calculatedTotal = totalHours * newRate;
+        }
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: _openSettings,
+          ),
+        ],
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button x many times:',
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Hourly rate:',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _hourlyRate == null
+                        ? 'Not set (open settings to configure)'
+                        : '\$${_hourlyRate!.toStringAsFixed(2)} per hour',
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    'Total hours',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _hoursController,
+                          keyboardType:
+                              const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Hours (h or decimal)',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _minutesController,
+                          keyboardType:
+                              const TextInputType.numberWithOptions(),
+                          decoration: const InputDecoration(
+                            labelText: 'Minutes (m)',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _secondsController,
+                          keyboardType:
+                              const TextInputType.numberWithOptions(),
+                          decoration: const InputDecoration(
+                            labelText: 'Seconds (s)',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'You can enter time as h, h:m, or h:m:s. '
+                    'Decimals are supported in the hours field (e.g. 19.3).',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: _calculate,
+                      child: const Text('Calculate income'),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    'Total income',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _hourlyRate == null || _calculatedTotal == null
+                        ? '—'
+                        : '\$${_calculatedTotal!.toStringAsFixed(2)}',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ],
+              ),
             ),
+    );
+  }
+}
+
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({super.key, this.initialHourlyRate});
+
+  final double? initialHourlyRate;
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  late final TextEditingController _rateController;
+
+  @override
+  void initState() {
+    super.initState();
+    _rateController = TextEditingController(
+      text: widget.initialHourlyRate?.toString() ?? '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _rateController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final rawRate = _rateController.text.trim().replaceAll(',', '');
+    final rate = double.tryParse(rawRate);
+
+    if (rate == null || rate <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid hourly rate')),
+      );
+      return;
+    }
+
+    await IncomeDatabase.instance.setHourlyRate(rate);
+
+    if (!mounted) return;
+    Navigator.of(context).pop<double>(rate);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Settings'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+              'Hourly rate',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _rateController,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Amount per hour',
+                prefixText: '\$ ',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _save,
+                child: const Text('Save'),
+              ),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }

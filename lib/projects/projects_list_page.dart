@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../app_secrets.dart';
+import '../archive/archive_page.dart';
 import '../exchange/exchange_rate_client.dart';
 import '../exchange/open_exchange_rates_service.dart';
 import '../income_database.dart';
+import '../monthly_snapshot.dart';
 import '../project.dart';
 import '../settings/settings_page.dart';
 import '../widgets/currency_badge.dart';
@@ -45,8 +47,18 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
     );
   }
 
+  String get _currentMonth {
+    final now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}';
+  }
+
   Future<void> _load() async {
-    final projects = await IncomeDatabase.instance.getProjects();
+    final db = IncomeDatabase.instance;
+    var projects = await db.getProjects();
+
+    await _autoResetIfNewMonth(db, projects);
+    projects = await db.getProjects();
+
     setState(() {
       _projects = projects;
       _isLoading = false;
@@ -58,6 +70,58 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
     if (projects.isNotEmpty) {
       await _computeAggregates(projects);
     }
+  }
+
+  Future<void> _autoResetIfNewMonth(
+      IncomeDatabase db, List<Project> projects) async {
+    final lastActive = await db.getLastActiveMonth();
+
+    if (lastActive == null) {
+      await db.setLastActiveMonth(_currentMonth);
+      return;
+    }
+
+    if (lastActive == _currentMonth) return;
+
+    final alreadySnapshotted = await db.isMonthSnapshotted(lastActive);
+    if (alreadySnapshotted) {
+      await db.setLastActiveMonth(_currentMonth);
+      return;
+    }
+
+    if (projects.isEmpty) {
+      await db.setLastActiveMonth(_currentMonth);
+      return;
+    }
+
+    final now = DateTime.now().toUtc();
+    final snapshots = <MonthlySnapshot>[];
+    for (final p in projects) {
+      final pid = p.id;
+      if (pid == null) continue;
+      final incomeBase = p.totalIncome;
+      snapshots.add(MonthlySnapshot(
+        projectId: pid,
+        month: lastActive,
+        name: p.name,
+        hourlyRate: p.hourlyRate,
+        baseCurrency: p.baseCurrency,
+        totalHours: p.totalHours,
+        fxAdjustmentPercent: p.fxAdjustmentPercent,
+        bonus: p.bonus,
+        totalIncomeBase: incomeBase,
+        baseToXafRate: 0.0,
+        totalIncomeXaf: 0.0,
+        closedAt: now,
+        isClosed: false,
+      ));
+    }
+
+    await db.autoSnapshotAndReset(
+      month: lastActive,
+      snapshots: snapshots,
+    );
+    await db.setLastActiveMonth(_currentMonth);
   }
 
   Future<void> _computeAggregates(List<Project> projects) async {
@@ -211,6 +275,12 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
     );
   }
 
+  Future<void> _openArchive() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const ArchivePage()),
+    );
+  }
+
   // ── Widgets ──
 
   Widget _buildSummaryCard() {
@@ -229,7 +299,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Total Income',
+                'Expected Income · ${DateFormat.yMMMM().format(DateTime.now())}',
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.7),
                   fontSize: 13,
@@ -453,6 +523,10 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
           style: TextStyle(fontWeight: FontWeight.w700),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.archive_outlined),
+            onPressed: _openArchive,
+          ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: _openSettings,

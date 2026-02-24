@@ -362,7 +362,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
           Row(
             children: [
               Text(
-                'Income',
+                'Expected Income · ${DateFormat.yMMMM().format(DateTime.now())}',
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.7),
                   fontSize: 11,

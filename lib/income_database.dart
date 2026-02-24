@@ -2,6 +2,7 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'income_entry.dart';
+import 'monthly_snapshot.dart';
 import 'project.dart';
 
 class IncomeDatabase {
@@ -20,9 +21,11 @@ class IncomeDatabase {
   static const String fxAdjustmentKey = 'fx_adjustment_percent';
   static const String fxUsdXafRateKey = 'fx_usd_xaf_rate';
   static const String fxUsdXafTimestampKey = 'fx_usd_xaf_timestamp';
+  static const String lastActiveMonthKey = 'last_active_month';
 
   static const String _projectsTable = 'projects';
   static const String _fxCacheTable = 'fx_cache';
+  static const String _snapshotsTable = 'monthly_snapshots';
 
   Future<Database> get database async {
     final existing = _database;
@@ -39,12 +42,13 @@ class IncomeDatabase {
 
     return openDatabase(
       path,
-      version: 6,
+      version: 9,
       onCreate: (db, version) async {
         await _createIncomeEntriesTable(db);
         await _createConfigTable(db);
         await _createProjectsTable(db);
         await _createFxCacheTable(db);
+        await _createMonthlySnapshotsTable(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -65,6 +69,17 @@ class IncomeDatabase {
           await db.execute(
             'ALTER TABLE $_projectsTable ADD COLUMN bonus REAL NOT NULL DEFAULT 0',
           );
+        }
+        if (oldVersion < 7) {
+          await _createMonthlySnapshotsTable(db);
+        }
+        if (oldVersion < 8) {
+          await db.execute(
+            'ALTER TABLE $_snapshotsTable ADD COLUMN isClosed INTEGER NOT NULL DEFAULT 1',
+          );
+        }
+        if (oldVersion < 9) {
+          await _recreateSnapshotsWithoutUnique(db);
         }
       },
     );
@@ -113,6 +128,55 @@ class IncomeDatabase {
         asOf TEXT NOT NULL
       )
     ''');
+  }
+
+  Future<void> _createMonthlySnapshotsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_snapshotsTable(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        projectId INTEGER NOT NULL,
+        month TEXT NOT NULL,
+        name TEXT NOT NULL,
+        hourlyRate REAL NOT NULL,
+        baseCurrency TEXT NOT NULL,
+        totalHours REAL NOT NULL,
+        fxAdjustmentPercent REAL NOT NULL DEFAULT 0,
+        bonus REAL NOT NULL DEFAULT 0,
+        totalIncomeBase REAL NOT NULL,
+        baseToXafRate REAL NOT NULL DEFAULT 0,
+        totalIncomeXaf REAL NOT NULL DEFAULT 0,
+        closedAt TEXT NOT NULL,
+        isClosed INTEGER NOT NULL DEFAULT 1
+      )
+    ''');
+  }
+
+  Future<void> _recreateSnapshotsWithoutUnique(Database db) async {
+    await db.execute('''
+      CREATE TABLE ${_snapshotsTable}_new(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        projectId INTEGER NOT NULL,
+        month TEXT NOT NULL,
+        name TEXT NOT NULL,
+        hourlyRate REAL NOT NULL,
+        baseCurrency TEXT NOT NULL,
+        totalHours REAL NOT NULL,
+        fxAdjustmentPercent REAL NOT NULL DEFAULT 0,
+        bonus REAL NOT NULL DEFAULT 0,
+        totalIncomeBase REAL NOT NULL,
+        baseToXafRate REAL NOT NULL DEFAULT 0,
+        totalIncomeXaf REAL NOT NULL DEFAULT 0,
+        closedAt TEXT NOT NULL,
+        isClosed INTEGER NOT NULL DEFAULT 1
+      )
+    ''');
+    await db.execute(
+      'INSERT INTO ${_snapshotsTable}_new SELECT * FROM $_snapshotsTable',
+    );
+    await db.execute('DROP TABLE $_snapshotsTable');
+    await db.execute(
+      'ALTER TABLE ${_snapshotsTable}_new RENAME TO $_snapshotsTable',
+    );
   }
 
   // Income entries API (currently unused by UI but kept for future use).
@@ -212,6 +276,12 @@ class IncomeDatabase {
   /// Returns the adjustment in percent (e.g. -10, 0, +10). Defaults to 0.
   Future<double> getFxAdjustmentPercent() async =>
       (await _getConfigDouble(fxAdjustmentKey)) ?? 0.0;
+
+  Future<void> setLastActiveMonth(String month) =>
+      _setConfigString(lastActiveMonthKey, month);
+
+  Future<String?> getLastActiveMonth() =>
+      _getConfigString(lastActiveMonthKey);
 
   Future<void> setCachedUsdToXafRate(double rate, DateTime asOf) async {
     await _setConfigDouble(fxUsdXafRateKey, rate);
@@ -340,6 +410,134 @@ class IncomeDatabase {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  // Monthly snapshots API.
+
+  /// Returns true only if the month has been explicitly closed (frozen).
+  Future<bool> isMonthClosed(String month) async {
+    final db = await database;
+    final result = await db.query(
+      _snapshotsTable,
+      where: 'month = ? AND isClosed = 1',
+      whereArgs: [month],
+      limit: 1,
+    );
+    return result.isNotEmpty;
+  }
+
+  /// Returns true if any snapshot rows exist for [month] (pending or closed).
+  Future<bool> isMonthSnapshotted(String month) async {
+    final db = await database;
+    final result = await db.query(
+      _snapshotsTable,
+      where: 'month = ?',
+      whereArgs: [month],
+      limit: 1,
+    );
+    return result.isNotEmpty;
+  }
+
+  Future<List<MonthlySnapshot>> getSnapshotsForMonth(String month) async {
+    final db = await database;
+    final maps = await db.query(
+      _snapshotsTable,
+      where: 'month = ?',
+      whereArgs: [month],
+      orderBy: 'totalIncomeXaf DESC',
+    );
+    return maps.map(MonthlySnapshot.fromMap).toList();
+  }
+
+  Future<List<({String month, bool isClosed, double totalBase, double totalXaf})>>
+      getArchivedMonths() async {
+    final db = await database;
+    final maps = await db.rawQuery(
+      'SELECT month, MIN(isClosed) AS isClosed, '
+      'SUM(totalIncomeBase) AS totalBase, '
+      'SUM(totalIncomeXaf) AS totalXaf '
+      'FROM $_snapshotsTable GROUP BY month ORDER BY month DESC',
+    );
+    return maps.map((m) {
+      return (
+        month: m['month'] as String,
+        isClosed: (m['isClosed'] as int?) != 0,
+        totalBase: (m['totalBase'] as num?)?.toDouble() ?? 0.0,
+        totalXaf: (m['totalXaf'] as num?)?.toDouble() ?? 0.0,
+      );
+    }).toList();
+  }
+
+  Future<int> insertSnapshot(MonthlySnapshot snapshot) async {
+    final db = await database;
+    return db.insert(_snapshotsTable, snapshot.toMap());
+  }
+
+  Future<void> updateSnapshot(MonthlySnapshot snapshot) async {
+    if (snapshot.id == null) {
+      throw ArgumentError('Snapshot id is required for update.');
+    }
+    final db = await database;
+    await db.update(
+      _snapshotsTable,
+      snapshot.toMap(),
+      where: 'id = ?',
+      whereArgs: [snapshot.id],
+    );
+  }
+
+  Future<void> deleteSnapshot(int id) async {
+    final db = await database;
+    await db.delete(
+      _snapshotsTable,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Marks all pending snapshots for [month] as closed (frozen).
+  Future<void> closeMonth(String month) async {
+    final db = await database;
+    await db.update(
+      _snapshotsTable,
+      {
+        'isClosed': 1,
+        'closedAt': DateTime.now().toUtc().toIso8601String(),
+      },
+      where: 'month = ? AND isClosed = 0',
+      whereArgs: [month],
+    );
+  }
+
+  /// Atomically snapshots all [projects] for [month] as pending (isClosed = 0)
+  /// and resets live project hours and bonus to 0.
+  Future<void> autoSnapshotAndReset({
+    required String month,
+    required List<MonthlySnapshot> snapshots,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final s in snapshots) {
+        await txn.insert(
+          _snapshotsTable,
+          s.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+      final projectIds = snapshots.map((s) => s.projectId).toSet();
+      for (final pid in projectIds) {
+        await txn.update(
+          _projectsTable,
+          {
+            'totalHours': 0.0,
+            'bonus': 0.0,
+            'updatedAt': DateTime.now().toUtc().toIso8601String(),
+          },
+          where: 'id = ?',
+          whereArgs: [pid],
+        );
+      }
+    });
   }
 }
 

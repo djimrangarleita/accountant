@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../income_database.dart';
 import '../project.dart';
+import '../widgets/currency_selector.dart';
 
 class AddProjectPage extends StatefulWidget {
   const AddProjectPage({super.key});
@@ -77,23 +78,9 @@ class _AddProjectPageState extends State<AddProjectPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
+              CurrencySelector(
                 value: _currency,
-                decoration: const InputDecoration(
-                  labelText: 'Base currency',
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'USD', child: Text('USD')),
-                  DropdownMenuItem(value: 'XAF', child: Text('XAF')),
-                  DropdownMenuItem(value: 'EUR', child: Text('EUR')),
-                  DropdownMenuItem(value: 'GBP', child: Text('GBP')),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() {
-                    _currency = value;
-                  });
-                },
+                onChanged: (value) => setState(() => _currency = value),
               ),
               const SizedBox(height: 16),
               SizedBox(

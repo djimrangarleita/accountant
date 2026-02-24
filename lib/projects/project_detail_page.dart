@@ -6,6 +6,7 @@ import '../exchange/exchange_rate_client.dart';
 import '../exchange/open_exchange_rates_service.dart';
 import '../income_database.dart';
 import '../project.dart';
+import '../widgets/currency_selector.dart';
 
 class ProjectDetailPage extends StatefulWidget {
   const ProjectDetailPage({super.key, required this.projectId});
@@ -198,6 +199,40 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     await _updateConversion();
   }
 
+  Future<void> _deleteProject() async {
+    final project = _project;
+    if (project == null || project.id == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete project'),
+        content: Text(
+          'Delete "${project.name}"? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    await IncomeDatabase.instance.deleteProject(project.id!);
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
+
   Future<void> _updateConversion() async {
     if (_exchangeClient == null) return;
     final project = _project;
@@ -248,6 +283,13 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(project?.name ?? 'Project'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            onPressed: project == null ? null : _deleteProject,
+            tooltip: 'Delete project',
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -267,19 +309,9 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
+                        CurrencySelector(
                           value: _currency,
-                          decoration: const InputDecoration(
-                            labelText: 'Base currency',
-                          ),
-                          items: const [
-                            DropdownMenuItem(value: 'USD', child: Text('USD')),
-                            DropdownMenuItem(value: 'XAF', child: Text('XAF')),
-                            DropdownMenuItem(value: 'EUR', child: Text('EUR')),
-                            DropdownMenuItem(value: 'GBP', child: Text('GBP')),
-                          ],
                           onChanged: (value) {
-                            if (value == null) return;
                             setState(() {
                               _currency = value;
                               _baseToXafRate = null;

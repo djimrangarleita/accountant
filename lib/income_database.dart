@@ -318,5 +318,14 @@ class IncomeDatabase {
     if (maps.isEmpty) return null;
     return Project.fromMap(maps.first);
   }
+
+  Future<void> deleteProject(int id) async {
+    final db = await database;
+    await db.delete(
+      _projectsTable,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
 }
 

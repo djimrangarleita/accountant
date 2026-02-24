@@ -463,17 +463,22 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
           ? const Center(child: CircularProgressIndicator())
           : _projects.isEmpty
               ? _buildEmptyState()
-              : ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 88),
-                  itemCount: sorted.length + 1,
-                  itemBuilder: (context, index) {
-                    if (index == 0) return _buildSummaryCard();
-                    final project = sorted[index - 1];
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: _buildProjectCard(project),
-                    );
-                  },
+              : Column(
+                  children: [
+                    _buildSummaryCard(),
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.only(top: 4, bottom: 88),
+                        itemCount: sorted.length,
+                        itemBuilder: (context, index) {
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: _buildProjectCard(sorted[index]),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddProjectSheet,

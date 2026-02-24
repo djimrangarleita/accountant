@@ -343,10 +343,10 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   Widget _buildResultsSection(Project project) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: Colors.black,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -357,7 +357,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                 'Income',
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.7),
-                  fontSize: 13,
+                  fontSize: 11,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -367,21 +367,21 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.check_circle,
-                        size: 14,
+                        size: 12,
                         color: Colors.white.withOpacity(0.7)),
                     const SizedBox(width: 4),
                     Text(
                       'Saved',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.7),
-                        fontSize: 12,
+                        fontSize: 11,
                       ),
                     ),
                   ],
                 ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -393,7 +393,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                       : '—',
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 32,
+                    fontSize: 24,
                     fontWeight: FontWeight.w700,
                     letterSpacing: -0.5,
                   ),
@@ -402,22 +402,22 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
               CurrencyBadge(project.baseCurrency),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Container(
             height: 1,
             color: Colors.white.withOpacity(0.15),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           if (_fxError != null)
             Text(
               _fxError!,
               style: TextStyle(
                 color: Colors.white.withOpacity(0.5),
-                fontSize: 12,
+                fontSize: 11,
               ),
             )
           else if (_isLoadingRate)
-            const SkeletonBox(width: 160, height: 18)
+            const SkeletonBox(width: 140, height: 16)
           else if (_baseToXafRate != null && _totalIncomeBase != null) ...[
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -428,7 +428,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                         _totalIncomeBase! * _baseToXafRate!, 'XAF'),
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.8),
-                      fontSize: 20,
+                      fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -436,12 +436,12 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                 const CurrencyBadge('XAF'),
               ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               _formatRate(_baseToXafRate!, 'XAF'),
               style: TextStyle(
                 color: Colors.white.withOpacity(0.4),
-                fontSize: 11,
+                fontSize: 10,
               ),
             ),
           ] else
@@ -449,7 +449,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
               '—',
               style: TextStyle(
                 color: Colors.white.withOpacity(0.5),
-                fontSize: 20,
+                fontSize: 16,
               ),
             ),
         ],
@@ -522,158 +522,171 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
           : project == null
               ? const Center(child: Text('Project not found'))
               : SafeArea(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildResultsSection(project),
-                        const SizedBox(height: 24),
+                  child: Column(
+                    children: [
+                      // Fixed income card at top
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: _buildResultsSection(project),
+                      ),
 
-                        // Project info section
-                        _buildSectionCard(
-                          title: 'PROJECT INFO',
-                          children: [
-                            TextField(
-                              controller: _nameController,
-                              textCapitalization: TextCapitalization.words,
-                              decoration: const InputDecoration(
-                                  labelText: 'Project name'),
-                            ),
-                            const SizedBox(height: 12),
-                            CurrencySelector(
-                              value: _currency.trim().isEmpty
-                                  ? 'USD'
-                                  : _currency,
-                              onChanged: (value) {
-                                setState(() {
-                                  _currency = value.trim().isEmpty
-                                      ? 'USD'
-                                      : value;
-                                  _baseToXafRate = null;
-                                });
-                                _onFieldChanged();
-                              },
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
+                      // Scrollable form in the middle
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Project info section
+                              _buildSectionCard(
+                                title: 'PROJECT INFO',
+                                children: [
+                                  TextField(
+                                    controller: _nameController,
+                                    textCapitalization:
+                                        TextCapitalization.words,
+                                    decoration: const InputDecoration(
+                                        labelText: 'Project name'),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  CurrencySelector(
+                                    value: _currency.trim().isEmpty
+                                        ? 'USD'
+                                        : _currency,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _currency = value.trim().isEmpty
+                                            ? 'USD'
+                                            : value;
+                                        _baseToXafRate = null;
+                                      });
+                                      _onFieldChanged();
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
 
-                        // Time section
-                        _buildSectionCard(
-                          title: 'TIME',
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _hoursController,
+                              // Time section
+                              _buildSectionCard(
+                                title: 'TIME',
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextField(
+                                          controller: _hoursController,
+                                          keyboardType: const TextInputType
+                                              .numberWithOptions(
+                                              decimal: true),
+                                          decoration: const InputDecoration(
+                                              labelText: 'Hours'),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: TextField(
+                                          controller: _minutesController,
+                                          keyboardType: const TextInputType
+                                              .numberWithOptions(),
+                                          decoration: const InputDecoration(
+                                              labelText: 'Min'),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: TextField(
+                                          controller: _secondsController,
+                                          keyboardType: const TextInputType
+                                              .numberWithOptions(),
+                                          decoration: const InputDecoration(
+                                              labelText: 'Sec'),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+
+                              // Rate section
+                              _buildSectionCard(
+                                title: 'RATE',
+                                children: [
+                                  TextField(
+                                    controller: _rateController,
                                     keyboardType:
                                         const TextInputType.numberWithOptions(
                                             decimal: true),
                                     decoration: const InputDecoration(
-                                        labelText: 'Hours'),
+                                        labelText: 'Hourly rate'),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _minutesController,
-                                    keyboardType:
-                                        const TextInputType.numberWithOptions(),
-                                    decoration: const InputDecoration(
-                                        labelText: 'Min'),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _secondsController,
-                                    keyboardType:
-                                        const TextInputType.numberWithOptions(),
-                                    decoration: const InputDecoration(
-                                        labelText: 'Sec'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
 
-                        // Rate section
-                        _buildSectionCard(
-                          title: 'RATE',
-                          children: [
-                            TextField(
-                              controller: _rateController,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
-                              decoration: const InputDecoration(
-                                  labelText: 'Hourly rate'),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-
-                        // FX settings (collapsible)
-                        Card(
-                          child: Theme(
-                            data: Theme.of(context)
-                                .copyWith(dividerColor: Colors.transparent),
-                            child: ExpansionTile(
-                              tilePadding:
-                                  const EdgeInsets.symmetric(horizontal: 16),
-                              childrenPadding: const EdgeInsets.fromLTRB(
-                                  16, 8, 16, 16),
-                              title: Text(
-                                'FX SETTINGS',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade600,
-                                  letterSpacing: 0.3,
+                              // FX settings (collapsible)
+                              Card(
+                                child: Theme(
+                                  data: Theme.of(context).copyWith(
+                                      dividerColor: Colors.transparent),
+                                  child: ExpansionTile(
+                                    tilePadding: const EdgeInsets.symmetric(
+                                        horizontal: 16),
+                                    childrenPadding:
+                                        const EdgeInsets.fromLTRB(
+                                            16, 8, 16, 16),
+                                    title: Text(
+                                      'FX SETTINGS',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.grey.shade600,
+                                        letterSpacing: 0.3,
+                                      ),
+                                    ),
+                                    children: [
+                                      Text(
+                                        'Bank FX adjustment',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.grey.shade700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      TextField(
+                                        controller: _fxAdjustmentController,
+                                        keyboardType: const TextInputType
+                                            .numberWithOptions(
+                                          decimal: true,
+                                          signed: true,
+                                        ),
+                                        decoration: const InputDecoration(
+                                          hintText: 'e.g. -10 or 10',
+                                          suffixText: '%',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                              children: [
-                                Text(
-                                  'Bank FX adjustment',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey.shade700,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                TextField(
-                                  controller: _fxAdjustmentController,
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                    signed: true,
-                                  ),
-                                  decoration: const InputDecoration(
-                                    hintText: 'e.g. -10 or 10',
-                                    suffixText: '%',
-                                  ),
-                                ),
-                              ],
-                            ),
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 24),
+                      ),
 
-                        // Manual save fallback
-                        SizedBox(
+                      // Fixed button at bottom
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                        child: SizedBox(
                           width: double.infinity,
                           child: FilledButton(
                             onPressed: _calculateAndSave,
                             child: const Text('Calculate & save'),
                           ),
                         ),
-                        const SizedBox(height: 24),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
     );

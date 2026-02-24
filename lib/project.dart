@@ -6,6 +6,7 @@ class Project {
     required this.baseCurrency,
     required this.totalHours,
     this.fxAdjustmentPercent = 0.0,
+    this.bonus = 0.0,
     required this.updatedAt,
   });
 
@@ -15,9 +16,10 @@ class Project {
   final String baseCurrency;
   final double totalHours;
   final double fxAdjustmentPercent;
+  final double bonus;
   final DateTime updatedAt;
 
-  double get totalIncome => hourlyRate * totalHours;
+  double get totalIncome => hourlyRate * totalHours + bonus;
 
   Project copyWith({
     int? id,
@@ -26,6 +28,7 @@ class Project {
     String? baseCurrency,
     double? totalHours,
     double? fxAdjustmentPercent,
+    double? bonus,
     DateTime? updatedAt,
   }) {
     return Project(
@@ -35,6 +38,7 @@ class Project {
       baseCurrency: baseCurrency ?? this.baseCurrency,
       totalHours: totalHours ?? this.totalHours,
       fxAdjustmentPercent: fxAdjustmentPercent ?? this.fxAdjustmentPercent,
+      bonus: bonus ?? this.bonus,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
@@ -47,6 +51,7 @@ class Project {
       'baseCurrency': baseCurrency,
       'totalHours': totalHours,
       'fxAdjustmentPercent': fxAdjustmentPercent,
+      'bonus': bonus,
       'updatedAt': updatedAt.toUtc().toIso8601String(),
     };
   }
@@ -59,6 +64,7 @@ class Project {
       baseCurrency: map['baseCurrency'] as String? ?? 'USD',
       totalHours: (map['totalHours'] as num).toDouble(),
       fxAdjustmentPercent: (map['fxAdjustmentPercent'] as num?)?.toDouble() ?? 0.0,
+      bonus: (map['bonus'] as num?)?.toDouble() ?? 0.0,
       updatedAt: DateTime.parse(map['updatedAt'] as String),
     );
   }

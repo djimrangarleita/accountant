@@ -39,7 +39,7 @@ class IncomeDatabase {
 
     return openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: (db, version) async {
         await _createIncomeEntriesTable(db);
         await _createConfigTable(db);
@@ -59,6 +59,11 @@ class IncomeDatabase {
         if (oldVersion < 5) {
           await db.execute(
             'ALTER TABLE $_projectsTable ADD COLUMN fxAdjustmentPercent REAL NOT NULL DEFAULT 0',
+          );
+        }
+        if (oldVersion < 6) {
+          await db.execute(
+            'ALTER TABLE $_projectsTable ADD COLUMN bonus REAL NOT NULL DEFAULT 0',
           );
         }
       },
@@ -94,6 +99,7 @@ class IncomeDatabase {
         baseCurrency TEXT NOT NULL,
         totalHours REAL NOT NULL,
         fxAdjustmentPercent REAL NOT NULL DEFAULT 0,
+        bonus REAL NOT NULL DEFAULT 0,
         updatedAt TEXT NOT NULL
       )
     ''');
@@ -279,6 +285,7 @@ class IncomeDatabase {
         'baseCurrency': baseCurrency,
         'totalHours': 0.0,
         'fxAdjustmentPercent': 0.0,
+        'bonus': 0.0,
         'updatedAt': now.toIso8601String(),
       },
     );

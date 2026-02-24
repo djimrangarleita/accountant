@@ -33,6 +33,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   final _minutesController = TextEditingController();
   final _secondsController = TextEditingController();
   final _fxAdjustmentController = TextEditingController();
+  final _bonusController = TextEditingController();
 
   double? _totalIncomeBase;
   bool _isLoadingRate = false;
@@ -62,6 +63,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     _minutesController.dispose();
     _secondsController.dispose();
     _fxAdjustmentController.dispose();
+    _bonusController.dispose();
     super.dispose();
   }
 
@@ -95,6 +97,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     _rateController.text = project.hourlyRate.toString();
     _currency = project.baseCurrency.toUpperCase();
     _fxAdjustmentController.text = project.fxAdjustmentPercent.toString();
+    _bonusController.text = project.bonus.toString();
 
     final totalSeconds = (project.totalHours * 3600).round();
     final h = totalSeconds ~/ 3600;
@@ -118,6 +121,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
       _minutesController,
       _secondsController,
       _fxAdjustmentController,
+      _bonusController,
     ]) {
       c.addListener(_onFieldChanged);
     }
@@ -202,12 +206,16 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     final rawAdj = _fxAdjustmentController.text.trim().replaceAll(',', '');
     final fxAdj = double.tryParse(rawAdj) ?? 0.0;
 
+    final rawBonus = _bonusController.text.trim().replaceAll(',', '');
+    final bonus = double.tryParse(rawBonus) ?? 0.0;
+
     final updated = project.copyWith(
       name: name,
       hourlyRate: rate,
       baseCurrency: _currency,
       totalHours: totalHours,
       fxAdjustmentPercent: fxAdj,
+      bonus: bonus,
       updatedAt: DateTime.now().toUtc(),
     );
 
@@ -563,6 +571,27 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                       _onFieldChanged();
                                     },
                                   ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Bank FX adjustment',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextField(
+                                    controller: _fxAdjustmentController,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                      signed: true,
+                                    ),
+                                    decoration: const InputDecoration(
+                                      hintText: 'e.g. -10 or 10',
+                                      suffixText: '%',
+                                    ),
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 12),
@@ -625,50 +654,19 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                               ),
                               const SizedBox(height: 12),
 
-                              // FX settings (collapsible)
-                              Card(
-                                child: Theme(
-                                  data: Theme.of(context).copyWith(
-                                      dividerColor: Colors.transparent),
-                                  child: ExpansionTile(
-                                    tilePadding: const EdgeInsets.symmetric(
-                                        horizontal: 16),
-                                    childrenPadding:
-                                        const EdgeInsets.fromLTRB(
-                                            16, 8, 16, 16),
-                                    title: Text(
-                                      'FX SETTINGS',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.grey.shade600,
-                                        letterSpacing: 0.3,
-                                      ),
-                                    ),
-                                    children: [
-                                      Text(
-                                        'Bank FX adjustment',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: Colors.grey.shade700,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      TextField(
-                                        controller: _fxAdjustmentController,
-                                        keyboardType: const TextInputType
-                                            .numberWithOptions(
-                                          decimal: true,
-                                          signed: true,
-                                        ),
-                                        decoration: const InputDecoration(
-                                          hintText: 'e.g. -10 or 10',
-                                          suffixText: '%',
-                                        ),
-                                      ),
-                                    ],
+                              // Bonus section
+                              _buildSectionCard(
+                                title: 'BONUS',
+                                children: [
+                                  TextField(
+                                    controller: _bonusController,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                            decimal: true),
+                                    decoration: const InputDecoration(
+                                        labelText: 'Flat bonus payment'),
                                   ),
-                                ),
+                                ],
                               ),
                             ],
                           ),

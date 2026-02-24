@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -6,7 +8,9 @@ import '../exchange/exchange_rate_client.dart';
 import '../exchange/open_exchange_rates_service.dart';
 import '../income_database.dart';
 import '../project.dart';
+import '../widgets/currency_badge.dart';
 import '../widgets/currency_selector.dart';
+import '../widgets/skeleton_box.dart';
 
 class ProjectDetailPage extends StatefulWidget {
   const ProjectDetailPage({super.key, required this.projectId});
@@ -25,17 +29,20 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   late final TextEditingController _rateController;
   String _currency = 'USD';
 
-  final TextEditingController _hoursController = TextEditingController();
-  final TextEditingController _minutesController = TextEditingController();
-  final TextEditingController _secondsController = TextEditingController();
+  final _hoursController = TextEditingController();
+  final _minutesController = TextEditingController();
+  final _secondsController = TextEditingController();
+  final _fxAdjustmentController = TextEditingController();
 
   double? _totalIncomeBase;
-  double? _fxAdjustmentPercent;
   bool _isLoadingRate = false;
   String? _fxError;
   double? _baseToXafRate;
 
   ExchangeRateClient? _exchangeClient;
+
+  Timer? _autoSaveTimer;
+  bool _showSavedIndicator = false;
 
   @override
   void initState() {
@@ -48,11 +55,13 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
 
   @override
   void dispose() {
+    _autoSaveTimer?.cancel();
     _nameController.dispose();
     _rateController.dispose();
     _hoursController.dispose();
     _minutesController.dispose();
     _secondsController.dispose();
+    _fxAdjustmentController.dispose();
     super.dispose();
   }
 
@@ -60,7 +69,8 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     final appId = AppSecrets.openExchangeRatesAppId.trim();
     if (appId.isEmpty) {
       _exchangeClient = null;
-      _fxError = 'FX disabled: missing Open Exchange Rates app id in AppSecrets.';
+      _fxError =
+          'FX disabled: missing Open Exchange Rates app id in AppSecrets.';
       return;
     }
     _exchangeClient = ExchangeRateClient(
@@ -69,14 +79,13 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   }
 
   Future<void> _load() async {
-    final db = IncomeDatabase.instance;
-    final project = await db.getProjectById(widget.projectId);
-    final fxAdj = await db.getFxAdjustmentPercent();
+    final project = await IncomeDatabase.instance.getProjectById(
+      widget.projectId,
+    );
 
     if (!mounted) return;
     setState(() {
       _project = project;
-      _fxAdjustmentPercent = fxAdj;
       _isLoading = false;
     });
 
@@ -85,6 +94,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     _nameController.text = project.name;
     _rateController.text = project.hourlyRate.toString();
     _currency = project.baseCurrency.toUpperCase();
+    _fxAdjustmentController.text = project.fxAdjustmentPercent.toString();
 
     final totalSeconds = (project.totalHours * 3600).round();
     final h = totalSeconds ~/ 3600;
@@ -96,18 +106,50 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     _secondsController.text = s.toString();
 
     _recomputeTotals();
+    _addFieldListeners();
     await _updateConversion();
   }
 
+  void _addFieldListeners() {
+    for (final c in [
+      _nameController,
+      _rateController,
+      _hoursController,
+      _minutesController,
+      _secondsController,
+      _fxAdjustmentController,
+    ]) {
+      c.addListener(_onFieldChanged);
+    }
+  }
+
+  void _onFieldChanged() {
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer(const Duration(milliseconds: 500), () {
+      _autoSave();
+    });
+  }
+
+  Future<void> _autoSave() async {
+    final ok = await _trySave(showSnackOnError: false);
+    if (ok && mounted) {
+      setState(() => _showSavedIndicator = true);
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _showSavedIndicator = false);
+      });
+    }
+  }
+
   double _applyFxAdjustment(double rate) {
-    final adj = _fxAdjustmentPercent ?? 0.0;
+    final adj = _project?.fxAdjustmentPercent ?? 0.0;
     return rate * (1 + adj / 100.0);
   }
 
   String _formatMoney(double amount, String currency) {
     final code = currency.toUpperCase();
     if (code == 'USD') {
-      return NumberFormat.currency(locale: 'en_US', symbol: r'$', decimalDigits: 2)
+      return NumberFormat.currency(
+              locale: 'en_US', symbol: r'$', decimalDigits: 2)
           .format(amount);
     }
     if (code == 'XAF') {
@@ -131,6 +173,57 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     });
   }
 
+  /// Returns true if save succeeded.
+  Future<bool> _trySave({bool showSnackOnError = true}) async {
+    final project = _project;
+    if (project == null) return false;
+
+    final name = _nameController.text.trim();
+    if (name.isEmpty) return false;
+
+    final rawRate = _rateController.text.trim().replaceAll(',', '');
+    final rate = double.tryParse(rawRate);
+    if (rate == null || rate <= 0) return false;
+
+    final rawHours = _hoursController.text.trim().replaceAll(',', '');
+    final rawMinutes = _minutesController.text.trim().replaceAll(',', '');
+    final rawSeconds = _secondsController.text.trim().replaceAll(',', '');
+
+    final hours = rawHours.isEmpty ? 0.0 : double.tryParse(rawHours);
+    if (hours == null || hours < 0) return false;
+    final minutes = rawMinutes.isEmpty ? 0 : int.tryParse(rawMinutes);
+    final seconds = rawSeconds.isEmpty ? 0 : int.tryParse(rawSeconds);
+
+    if (minutes == null || minutes < 0 || minutes >= 60) return false;
+    if (seconds == null || seconds < 0 || seconds >= 60) return false;
+
+    final totalHours = hours + minutes / 60.0 + seconds / 3600.0;
+
+    final rawAdj = _fxAdjustmentController.text.trim().replaceAll(',', '');
+    final fxAdj = double.tryParse(rawAdj) ?? 0.0;
+
+    final updated = project.copyWith(
+      name: name,
+      hourlyRate: rate,
+      baseCurrency: _currency,
+      totalHours: totalHours,
+      fxAdjustmentPercent: fxAdj,
+      updatedAt: DateTime.now().toUtc(),
+    );
+
+    await IncomeDatabase.instance.updateProject(updated);
+    if (!mounted) return false;
+
+    setState(() {
+      _project = updated;
+      _totalIncomeBase = updated.totalIncome;
+      _baseToXafRate = null;
+    });
+
+    await _updateConversion();
+    return true;
+  }
+
   Future<void> _calculateAndSave() async {
     final project = _project;
     if (project == null) return;
@@ -152,51 +245,21 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
       return;
     }
 
-    final rawHours = _hoursController.text.trim().replaceAll(',', '');
-    final rawMinutes = _minutesController.text.trim().replaceAll(',', '');
-    final rawSeconds = _secondsController.text.trim().replaceAll(',', '');
-
-    final hours = rawHours.isEmpty ? 0.0 : double.tryParse(rawHours);
-    if (hours == null || hours < 0) {
+    final ok = await _trySave(showSnackOnError: true);
+    if (ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Hours must be a valid number')),
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
+              SizedBox(width: 8),
+              Text('Saved'),
+            ],
+          ),
+          duration: Duration(seconds: 1),
+        ),
       );
-      return;
     }
-    final minutes = rawMinutes.isEmpty ? 0 : int.tryParse(rawMinutes);
-    final seconds = rawSeconds.isEmpty ? 0 : int.tryParse(rawSeconds);
-
-    if (minutes == null || minutes < 0 || minutes >= 60) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Minutes must be between 0 and 59')),
-      );
-      return;
-    }
-    if (seconds == null || seconds < 0 || seconds >= 60) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Seconds must be between 0 and 59')),
-      );
-      return;
-    }
-
-    final totalHours = hours + minutes / 60.0 + seconds / 3600.0;
-
-    final updated = project.copyWith(
-      name: name,
-      hourlyRate: rate,
-      baseCurrency: _currency,
-      totalHours: totalHours,
-      updatedAt: DateTime.now().toUtc(),
-    );
-
-    await IncomeDatabase.instance.updateProject(updated);
-    setState(() {
-      _project = updated;
-      _totalIncomeBase = updated.totalIncome;
-      _baseToXafRate = null;
-    });
-
-    await _updateConversion();
   }
 
   Future<void> _deleteProject() async {
@@ -207,9 +270,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete project'),
-        content: Text(
-          'Delete "${project.name}"? This cannot be undone.',
-        ),
+        content: Text('Delete "${project.name}"? This cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -227,7 +288,6 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     );
 
     if (confirmed != true || !mounted) return;
-
     await IncomeDatabase.instance.deleteProject(project.id!);
     if (!mounted) return;
     Navigator.of(context).pop();
@@ -261,7 +321,8 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
       }
 
       final quote = await _exchangeClient!.getRate(from: from, to: to);
-      await db.setCachedFxRate(from: from, to: to, rate: quote.rate, asOf: quote.asOf);
+      await db.setCachedFxRate(
+          from: from, to: to, rate: quote.rate, asOf: quote.asOf);
 
       if (!mounted) return;
       setState(() {
@@ -277,17 +338,182 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     }
   }
 
+  // ── Build helpers ──
+
+  Widget _buildResultsSection(Project project) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Income',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              if (_showSavedIndicator)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.check_circle,
+                        size: 14,
+                        color: Colors.white.withOpacity(0.7)),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Saved',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.7),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Text(
+                  _totalIncomeBase != null
+                      ? _formatMoney(
+                          _totalIncomeBase!, project.baseCurrency)
+                      : '—',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 32,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+              ),
+              CurrencyBadge(project.baseCurrency),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            height: 1,
+            color: Colors.white.withOpacity(0.15),
+          ),
+          const SizedBox(height: 12),
+          if (_fxError != null)
+            Text(
+              _fxError!,
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.5),
+                fontSize: 12,
+              ),
+            )
+          else if (_isLoadingRate)
+            const SkeletonBox(width: 160, height: 18)
+          else if (_baseToXafRate != null && _totalIncomeBase != null) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Text(
+                    _formatMoney(
+                        _totalIncomeBase! * _baseToXafRate!, 'XAF'),
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const CurrencyBadge('XAF'),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _formatRate(_baseToXafRate!, 'XAF'),
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.4),
+                fontSize: 11,
+              ),
+            ),
+          ] else
+            Text(
+              '—',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.5),
+                fontSize: 20,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionCard({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade600,
+                letterSpacing: 0.3,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final project = _project;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(project?.name ?? 'Project'),
+        title: Text(
+          project?.name ?? 'Project',
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            onPressed: project == null ? null : _deleteProject,
-            tooltip: 'Delete project',
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            enabled: project != null,
+            onSelected: (value) {
+              if (value == 'delete') _deleteProject();
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                    SizedBox(width: 12),
+                    Text('Delete project',
+                        style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -301,78 +527,143 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        TextField(
-                          controller: _nameController,
-                          textCapitalization: TextCapitalization.words,
-                          decoration: const InputDecoration(
-                            labelText: 'Project name',
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        CurrencySelector(
-                          value: _currency,
-                          onChanged: (value) {
-                            setState(() {
-                              _currency = value;
-                              _baseToXafRate = null;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _rateController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            labelText: 'Hourly rate',
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Total hours',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
+                        _buildResultsSection(project),
+                        const SizedBox(height: 24),
+
+                        // Project info section
+                        _buildSectionCard(
+                          title: 'PROJECT INFO',
                           children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _hoursController,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                  decimal: true,
-                                ),
-                                decoration: const InputDecoration(
-                                  labelText: 'Hours',
-                                ),
-                              ),
+                            TextField(
+                              controller: _nameController,
+                              textCapitalization: TextCapitalization.words,
+                              decoration: const InputDecoration(
+                                  labelText: 'Project name'),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: _minutesController,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(),
-                                decoration: const InputDecoration(
-                                  labelText: 'Minutes',
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: _secondsController,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(),
-                                decoration: const InputDecoration(
-                                  labelText: 'Seconds',
-                                ),
-                              ),
+                            const SizedBox(height: 12),
+                            CurrencySelector(
+                              value: _currency.trim().isEmpty
+                                  ? 'USD'
+                                  : _currency,
+                              onChanged: (value) {
+                                setState(() {
+                                  _currency = value.trim().isEmpty
+                                      ? 'USD'
+                                      : value;
+                                  _baseToXafRate = null;
+                                });
+                                _onFieldChanged();
+                              },
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
+
+                        // Time section
+                        _buildSectionCard(
+                          title: 'TIME',
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _hoursController,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                            decimal: true),
+                                    decoration: const InputDecoration(
+                                        labelText: 'Hours'),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _minutesController,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(),
+                                    decoration: const InputDecoration(
+                                        labelText: 'Min'),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _secondsController,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(),
+                                    decoration: const InputDecoration(
+                                        labelText: 'Sec'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Rate section
+                        _buildSectionCard(
+                          title: 'RATE',
+                          children: [
+                            TextField(
+                              controller: _rateController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              decoration: const InputDecoration(
+                                  labelText: 'Hourly rate'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        // FX settings (collapsible)
+                        Card(
+                          child: Theme(
+                            data: Theme.of(context)
+                                .copyWith(dividerColor: Colors.transparent),
+                            child: ExpansionTile(
+                              tilePadding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              childrenPadding: const EdgeInsets.fromLTRB(
+                                  16, 8, 16, 16),
+                              title: Text(
+                                'FX SETTINGS',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade600,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                              children: [
+                                Text(
+                                  'Bank FX adjustment',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: _fxAdjustmentController,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                    signed: true,
+                                  ),
+                                  decoration: const InputDecoration(
+                                    hintText: 'e.g. -10 or 10',
+                                    suffixText: '%',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Manual save fallback
                         SizedBox(
                           width: double.infinity,
                           child: FilledButton(
@@ -381,49 +672,6 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                           ),
                         ),
                         const SizedBox(height: 24),
-                        Text(
-                          'Total income (${project.baseCurrency.toUpperCase()})',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _totalIncomeBase == null
-                              ? '—'
-                              : _formatMoney(
-                                  _totalIncomeBase!,
-                                  project.baseCurrency,
-                                ),
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Total income (XAF)',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        if (_fxError != null)
-                          Text(
-                            _fxError!,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(color: Colors.red),
-                          )
-                        else if (_isLoadingRate)
-                          const Text('Loading exchange rate...')
-                        else if (_baseToXafRate == null || _totalIncomeBase == null)
-                          const Text('—')
-                        else ...[
-                          Text(
-                            _formatMoney(_totalIncomeBase! * _baseToXafRate!, 'XAF'),
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Rate used: ${_formatRate(_baseToXafRate!, 'XAF')}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
                       ],
                     ),
                   ),
@@ -431,4 +679,3 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     );
   }
 }
-

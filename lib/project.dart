@@ -5,6 +5,7 @@ class Project {
     required this.hourlyRate,
     required this.baseCurrency,
     required this.totalHours,
+    this.fxAdjustmentPercent = 0.0,
     required this.updatedAt,
   });
 
@@ -13,6 +14,7 @@ class Project {
   final double hourlyRate;
   final String baseCurrency;
   final double totalHours;
+  final double fxAdjustmentPercent;
   final DateTime updatedAt;
 
   double get totalIncome => hourlyRate * totalHours;
@@ -23,6 +25,7 @@ class Project {
     double? hourlyRate,
     String? baseCurrency,
     double? totalHours,
+    double? fxAdjustmentPercent,
     DateTime? updatedAt,
   }) {
     return Project(
@@ -31,6 +34,7 @@ class Project {
       hourlyRate: hourlyRate ?? this.hourlyRate,
       baseCurrency: baseCurrency ?? this.baseCurrency,
       totalHours: totalHours ?? this.totalHours,
+      fxAdjustmentPercent: fxAdjustmentPercent ?? this.fxAdjustmentPercent,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
@@ -42,6 +46,7 @@ class Project {
       'hourlyRate': hourlyRate,
       'baseCurrency': baseCurrency,
       'totalHours': totalHours,
+      'fxAdjustmentPercent': fxAdjustmentPercent,
       'updatedAt': updatedAt.toUtc().toIso8601String(),
     };
   }
@@ -53,6 +58,7 @@ class Project {
       hourlyRate: (map['hourlyRate'] as num).toDouble(),
       baseCurrency: map['baseCurrency'] as String? ?? 'USD',
       totalHours: (map['totalHours'] as num).toDouble(),
+      fxAdjustmentPercent: (map['fxAdjustmentPercent'] as num?)?.toDouble() ?? 0.0,
       updatedAt: DateTime.parse(map['updatedAt'] as String),
     );
   }

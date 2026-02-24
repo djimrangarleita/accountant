@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../currencies.dart';
+import 'package:accountant_app/currencies.dart';
 
 class CurrencySelector extends StatelessWidget {
   const CurrencySelector({
@@ -14,21 +14,35 @@ class CurrencySelector extends StatelessWidget {
   final ValueChanged<String> onChanged;
   final InputDecoration? decoration;
 
+  String get _safeValue {
+    final v = value.trim().toUpperCase();
+    return v.isEmpty ? 'USD' : v;
+  }
+
+  static String _displayLabel(String code) {
+    final c = code.toUpperCase();
+    for (final e in kAllCurrencies) {
+      if (e.code == c) return '${e.code} – ${e.name}';
+    }
+    return c;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final safeValue = _safeValue;
     return InkWell(
-      onTap: () => _openPicker(context),
+      onTap: () => _openPicker(context, safeValue),
       child: InputDecorator(
-        decoration: decoration ?? const InputDecoration(
+        decoration: decoration ?? InputDecoration(
           labelText: 'Base currency',
-          border: OutlineInputBorder(),
+          border: const OutlineInputBorder(),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Expanded(
               child: Text(
-                currencyDisplayLabel(value),
+                _displayLabel(safeValue),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -39,10 +53,10 @@ class CurrencySelector extends StatelessWidget {
     );
   }
 
-  Future<void> _openPicker(BuildContext context) async {
+  Future<void> _openPicker(BuildContext context, String initialValue) async {
     final selected = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (context) => _CurrencyPickerPage(initialValue: value),
+      MaterialPageRoute<String>(
+        builder: (context) => _CurrencyPickerPage(initialValue: initialValue),
       ),
     );
     if (selected != null) {

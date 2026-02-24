@@ -7,7 +7,9 @@ import '../exchange/open_exchange_rates_service.dart';
 import '../income_database.dart';
 import '../project.dart';
 import '../settings/settings_page.dart';
-import 'add_project_page.dart';
+import '../widgets/currency_badge.dart';
+import '../widgets/currency_selector.dart';
+import '../widgets/skeleton_box.dart';
 import 'project_detail_page.dart';
 
 class ProjectsListPage extends StatefulWidget {
@@ -65,8 +67,6 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
     });
 
     final db = IncomeDatabase.instance;
-    final fxAdj = await db.getFxAdjustmentPercent();
-    double applyAdj(double rate) => rate * (1 + fxAdj / 100.0);
 
     double sumUsd = 0.0;
     double sumXaf = 0.0;
@@ -81,6 +81,8 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
 
           final base = p.baseCurrency.toUpperCase();
           final income = p.totalIncome;
+          final adj = p.fxAdjustmentPercent;
+          double applyAdj(double rate) => rate * (1 + adj / 100.0);
 
           double usdRate;
           if (base == 'USD') {
@@ -91,8 +93,10 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
             if (cached != null && now.difference(cached.asOf).inMinutes < 60) {
               usdRate = cached.rate;
             } else {
-              final quote = await _exchangeClient!.getRate(from: base, to: 'USD');
-              await db.setCachedFxRate(from: base, to: 'USD', rate: quote.rate, asOf: quote.asOf);
+              final quote =
+                  await _exchangeClient!.getRate(from: base, to: 'USD');
+              await db.setCachedFxRate(
+                  from: base, to: 'USD', rate: quote.rate, asOf: quote.asOf);
               usdRate = quote.rate;
             }
           }
@@ -106,8 +110,10 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
             if (cached != null && now.difference(cached.asOf).inMinutes < 60) {
               xafRate = applyAdj(cached.rate);
             } else {
-              final quote = await _exchangeClient!.getRate(from: base, to: 'XAF');
-              await db.setCachedFxRate(from: base, to: 'XAF', rate: quote.rate, asOf: quote.asOf);
+              final quote =
+                  await _exchangeClient!.getRate(from: base, to: 'XAF');
+              await db.setCachedFxRate(
+                  from: base, to: 'XAF', rate: quote.rate, asOf: quote.asOf);
               xafRate = applyAdj(quote.rate);
             }
           }
@@ -147,7 +153,8 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
   String _formatMoney(double amount, String currency) {
     final code = currency.toUpperCase();
     if (code == 'USD') {
-      return NumberFormat.currency(locale: 'en_US', symbol: r'$', decimalDigits: 2)
+      return NumberFormat.currency(
+              locale: 'en_US', symbol: r'$', decimalDigits: 2)
           .format(amount);
     }
     if (code == 'XAF') {
@@ -158,11 +165,26 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
     return '${fmt.format(double.parse(amount.toStringAsFixed(2)))} $code';
   }
 
-  Future<void> _addProject() async {
-    final created = await Navigator.of(context).push<Project>(
-      MaterialPageRoute(builder: (_) => const AddProjectPage()),
+  String _formatHours(double totalHours) {
+    final totalSeconds = (totalHours * 3600).round();
+    final h = totalSeconds ~/ 3600;
+    final m = (totalSeconds % 3600) ~/ 60;
+    if (m == 0) return '${h}h';
+    return '${h}h ${m}m';
+  }
+
+  // ── Add project via bottom sheet ──
+
+  Future<void> _showAddProjectSheet() async {
+    final created = await showModalBottomSheet<Project>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => const _AddProjectSheet(),
     );
-    if (created == null) return;
+    if (created == null || !mounted) return;
     await _load();
     if (!mounted) return;
     await Navigator.of(context).push<void>(
@@ -189,44 +211,231 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
     );
   }
 
-  Widget _buildTotalsSection() {
+  // ── Widgets ──
+
+  Widget _buildSummaryCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(16),
       ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Total Income',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              if (_projects.isNotEmpty)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${_projects.length} project${_projects.length == 1 ? '' : 's'}',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_isLoadingTotals) ...[
+            const SkeletonBox(width: 180, height: 28),
+            const SizedBox(height: 8),
+            const SkeletonBox(width: 140, height: 18),
+          ] else if (_totalsError != null)
             Text(
-              'Total income',
-              style: Theme.of(context).textTheme.titleSmall,
+              _totalsError!,
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.6),
+                fontSize: 13,
+              ),
+            )
+          else ...[
+            Text(
+              _totalUsd != null ? _formatMoney(_totalUsd!, 'USD') : '—',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.5,
+              ),
             ),
             const SizedBox(height: 4),
-            if (_isLoadingTotals)
-              const Text('Loading…')
-            else if (_totalsError != null)
-              Text(
-                _totalsError!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-              )
-            else ...[
-              Text(
-                'USD: ${_formatMoney(_totalUsd ?? 0, 'USD')}',
-                style: Theme.of(context).textTheme.titleMedium,
+            Text(
+              _totalXaf != null ? _formatMoney(_totalXaf!, 'XAF') : '—',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.6),
+                fontSize: 16,
+                fontWeight: FontWeight.w400,
               ),
-              const SizedBox(height: 2),
-              Text(
-                'XAF: ${_formatMoney(_totalXaf ?? 0, 'XAF')}',
-                style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProjectCard(Project project) {
+    final xafAmount =
+        project.id != null ? _projectXafAmounts[project.id] : null;
+    final rank = _sortedProjects.indexOf(project) + 1;
+
+    return GestureDetector(
+      onTap: () => _openProject(project),
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      project.name,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  CurrencyBadge(project.baseCurrency),
+                  const SizedBox(width: 8),
+                  if (rank <= 3 && _sortedProjects.length > 1)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '#$rank',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _formatMoney(
+                              project.totalIncome, project.baseCurrency),
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        if (_isLoadingTotals)
+                          const SkeletonBox(width: 100, height: 14)
+                        else
+                          Text(
+                            xafAmount != null
+                                ? _formatMoney(xafAmount, 'XAF')
+                                : '—',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        _formatHours(project.totalHours),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${_formatMoney(project.hourlyRate, project.baseCurrency)}/h',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.chevron_right, color: Colors.grey.shade400),
+                ],
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 48),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.work_outline_rounded,
+              size: 56,
+              color: Colors.grey.shade300,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'No projects yet',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tap + to create your first project\nand start tracking income.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
+                height: 1.4,
+              ),
+            ),
           ],
         ),
       ),
@@ -235,12 +444,17 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
 
   @override
   Widget build(BuildContext context) {
+    final sorted = _sortedProjects;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Projects'),
+        title: const Text(
+          'Projects',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings),
+            icon: const Icon(Icons.settings_outlined),
             onPressed: _openSettings,
           ),
         ],
@@ -248,38 +462,141 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _projects.isEmpty
-              ? const Center(child: Text('No projects yet'))
-              : Column(
-                  children: [
-                    Expanded(
-                      child: ListView.separated(
-                        itemCount: _sortedProjects.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final p = _sortedProjects[index];
-                          final xafAmount = p.id != null
-                              ? _projectXafAmounts[p.id]
-                              : null;
-                          final subtitle = xafAmount != null
-                              ? '${_formatMoney(p.totalIncome, p.baseCurrency)} • ${_formatMoney(xafAmount, 'XAF')}'
-                              : _formatMoney(p.totalIncome, p.baseCurrency);
-                          return ListTile(
-                            title: Text(p.name),
-                            subtitle: Text(subtitle),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () => _openProject(p),
-                          );
-                        },
-                      ),
-                    ),
-                    _buildTotalsSection(),
-                  ],
+              ? _buildEmptyState()
+              : ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 88),
+                  itemCount: sorted.length + 1,
+                  itemBuilder: (context, index) {
+                    if (index == 0) return _buildSummaryCard();
+                    final project = sorted[index - 1];
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: _buildProjectCard(project),
+                    );
+                  },
                 ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _addProject,
+        onPressed: _showAddProjectSheet,
         child: const Icon(Icons.add),
       ),
     );
   }
 }
 
+// ── Bottom sheet for adding a project ──
+
+class _AddProjectSheet extends StatefulWidget {
+  const _AddProjectSheet();
+
+  @override
+  State<_AddProjectSheet> createState() => _AddProjectSheetState();
+}
+
+class _AddProjectSheetState extends State<_AddProjectSheet> {
+  final _nameController = TextEditingController();
+  final _rateController = TextEditingController();
+  String _currency = 'USD';
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _rateController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final name = _nameController.text.trim();
+    final rawRate = _rateController.text.trim().replaceAll(',', '');
+    final rate = double.tryParse(rawRate);
+
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a project name')),
+      );
+      return;
+    }
+    if (rate == null || rate <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid hourly rate')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+    final project = await IncomeDatabase.instance.createProject(
+      name: name,
+      hourlyRate: rate,
+      baseCurrency: _currency,
+    );
+    if (!mounted) return;
+    Navigator.of(context).pop<Project>(project);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(24, 16, 24, 16 + bottomInset),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'New Project',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _nameController,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(labelText: 'Project name'),
+            autofocus: true,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _rateController,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Hourly rate'),
+          ),
+          const SizedBox(height: 12),
+          CurrencySelector(
+            value: _currency,
+            onChanged: (value) => setState(() => _currency = value),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _saving ? null : _save,
+              child: _saving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Create project'),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}

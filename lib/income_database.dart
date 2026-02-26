@@ -449,21 +449,26 @@ class IncomeDatabase {
     return maps.map(MonthlySnapshot.fromMap).toList();
   }
 
-  Future<List<({String month, bool isClosed, double totalBase, double totalXaf})>>
-      getArchivedMonths() async {
+  Future<
+      List<({
+        String month,
+        bool isClosed,
+        double totalXaf,
+        int projectCount,
+      })>> getArchivedMonths() async {
     final db = await database;
     final maps = await db.rawQuery(
       'SELECT month, MIN(isClosed) AS isClosed, '
-      'SUM(totalIncomeBase) AS totalBase, '
-      'SUM(totalIncomeXaf) AS totalXaf '
+      'SUM(totalIncomeXaf) AS totalXaf, '
+      'COUNT(*) AS projectCount '
       'FROM $_snapshotsTable GROUP BY month ORDER BY month DESC',
     );
     return maps.map((m) {
       return (
         month: m['month'] as String,
         isClosed: (m['isClosed'] as int?) != 0,
-        totalBase: (m['totalBase'] as num?)?.toDouble() ?? 0.0,
         totalXaf: (m['totalXaf'] as num?)?.toDouble() ?? 0.0,
+        projectCount: (m['projectCount'] as int?) ?? 0,
       );
     }).toList();
   }

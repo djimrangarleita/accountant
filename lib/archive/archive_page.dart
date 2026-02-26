@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../app_secrets.dart';
+import '../exchange/exchange_rate_client.dart';
+import '../exchange/open_exchange_rates_service.dart';
 import '../income_database.dart';
+import '../widgets/skeleton_box.dart';
 import 'add_archive_entry_page.dart';
 import 'archive_month_detail_page.dart';
 
@@ -14,13 +18,26 @@ class ArchivePage extends StatefulWidget {
 
 class _ArchivePageState extends State<ArchivePage> {
   bool _isLoading = true;
-  List<({String month, bool isClosed, double totalBase, double totalXaf})>
+  List<({String month, bool isClosed, double totalXaf, int projectCount})>
       _months = const [];
+
+  ExchangeRateClient? _exchangeClient;
+  double? _xafToUsdRate;
+  bool _isLoadingRate = false;
 
   @override
   void initState() {
     super.initState();
+    _initExchangeClient();
     _load();
+  }
+
+  void _initExchangeClient() {
+    final appId = AppSecrets.openExchangeRatesAppId.trim();
+    if (appId.isEmpty) return;
+    _exchangeClient = ExchangeRateClient(
+      service: OpenExchangeRatesService(appId: appId),
+    );
   }
 
   Future<void> _load() async {
@@ -30,6 +47,32 @@ class _ArchivePageState extends State<ArchivePage> {
       _months = months;
       _isLoading = false;
     });
+    _fetchXafToUsdRate();
+  }
+
+  Future<void> _fetchXafToUsdRate() async {
+    if (_exchangeClient == null) return;
+    setState(() => _isLoadingRate = true);
+    try {
+      final db = IncomeDatabase.instance;
+      final cached = await db.getCachedFxRate(from: 'XAF', to: 'USD');
+      final now = DateTime.now().toUtc();
+      double rate;
+      if (cached != null && now.difference(cached.asOf).inMinutes < 60) {
+        rate = cached.rate;
+      } else {
+        final quote = await _exchangeClient!.getRate(from: 'XAF', to: 'USD');
+        await db.setCachedFxRate(
+            from: 'XAF', to: 'USD', rate: quote.rate, asOf: quote.asOf);
+        rate = quote.rate;
+      }
+      if (!mounted) return;
+      setState(() => _xafToUsdRate = rate);
+    } on Object catch (_) {
+      // Rate unavailable — tiles will show '—' for USD
+    } finally {
+      if (mounted) setState(() => _isLoadingRate = false);
+    }
   }
 
   String _monthLabel(String month) {
@@ -88,17 +131,16 @@ class _ArchivePageState extends State<ArchivePage> {
           ? const Center(child: CircularProgressIndicator())
           : _months.isEmpty
               ? _buildEmptyState()
-              : ListView.separated(
-                  padding: const EdgeInsets.only(top: 12, bottom: 88),
+              : ListView.builder(
+                  padding: const EdgeInsets.only(top: 8, bottom: 88),
                   itemCount: _months.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final entry = _months[index];
                     return _buildMonthTile(
                       entry.month,
                       entry.isClosed,
-                      entry.totalBase,
                       entry.totalXaf,
+                      entry.projectCount,
                     );
                   },
                 ),
@@ -146,82 +188,111 @@ class _ArchivePageState extends State<ArchivePage> {
   }
 
   Widget _buildMonthTile(
-      String month, bool isClosed, double totalBase, double totalXaf) {
-    return InkWell(
+      String month, bool isClosed, double totalXaf, int projectCount) {
+    final totalUsd =
+        (_xafToUsdRate != null && totalXaf > 0) ? totalXaf * _xafToUsdRate! : null;
+
+    return GestureDetector(
       onTap: () => _openMonth(month, isClosed),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Top row: month name + chips
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      Text(
-                        _monthLabel(month),
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
+                  Expanded(
+                    child: Text(
+                      _monthLabel(month),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
                       ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: isClosed
-                              ? Colors.green.shade700
-                              : Colors.grey.shade200,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (isClosed)
-                              const Padding(
-                                padding: EdgeInsets.only(right: 3),
-                                child: Icon(Icons.check,
-                                    size: 10, color: Colors.white),
-                              ),
-                            Text(
-                              isClosed ? 'Paid' : 'Pending',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                color: isClosed
-                                    ? Colors.white
-                                    : Colors.grey.shade700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _formatMoney(totalBase, 'USD'),
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.3,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(width: 8),
                   Text(
-                    totalXaf > 0 ? _formatMoney(totalXaf, 'XAF') : '—',
+                    '$projectCount project${projectCount == 1 ? '' : 's'}',
                     style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.grey.shade600,
+                      fontSize: 12,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isClosed
+                          ? Colors.green.shade700
+                          : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isClosed)
+                          const Padding(
+                            padding: EdgeInsets.only(right: 3),
+                            child:
+                                Icon(Icons.check, size: 10, color: Colors.white),
+                          ),
+                        Text(
+                          isClosed ? 'Paid' : 'Pending',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color:
+                                isClosed ? Colors.white : Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-            ),
-            Icon(Icons.chevron_right, color: Colors.grey.shade400),
-          ],
+              const SizedBox(height: 12),
+              // Bottom row: income on left, chevron on right
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_isLoadingRate)
+                          const SkeletonBox(width: 160, height: 22)
+                        else
+                          Text(
+                            totalUsd != null
+                                ? _formatMoney(totalUsd, 'USD')
+                                : '—',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                        const SizedBox(height: 2),
+                        Text(
+                          totalXaf > 0 ? _formatMoney(totalXaf, 'XAF') : '—',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.chevron_right, color: Colors.grey.shade400),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

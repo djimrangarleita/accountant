@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../app_secrets.dart';
+import '../exchange/exchange_rate_client.dart';
+import '../exchange/open_exchange_rates_service.dart';
 import '../income_database.dart';
 import '../monthly_snapshot.dart';
 import '../widgets/currency_badge.dart';
+import '../widgets/skeleton_box.dart';
 import 'add_archive_entry_page.dart';
 
 class ArchiveMonthDetailPage extends StatefulWidget {
@@ -27,11 +31,24 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
   bool _isClosing = false;
   List<MonthlySnapshot> _snapshots = const [];
 
+  ExchangeRateClient? _exchangeClient;
+  double? _xafToUsdRate;
+  bool _isLoadingRate = false;
+
   @override
   void initState() {
     super.initState();
     _isClosed = widget.isClosed;
+    _initExchangeClient();
     _load();
+  }
+
+  void _initExchangeClient() {
+    final appId = AppSecrets.openExchangeRatesAppId.trim();
+    if (appId.isEmpty) return;
+    _exchangeClient = ExchangeRateClient(
+      service: OpenExchangeRatesService(appId: appId),
+    );
   }
 
   Future<void> _load() async {
@@ -45,6 +62,32 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
         _isClosed = snapshots.first.isClosed;
       }
     });
+    _fetchXafToUsdRate();
+  }
+
+  Future<void> _fetchXafToUsdRate() async {
+    if (_exchangeClient == null) return;
+    setState(() => _isLoadingRate = true);
+    try {
+      final db = IncomeDatabase.instance;
+      final cached = await db.getCachedFxRate(from: 'XAF', to: 'USD');
+      final now = DateTime.now().toUtc();
+      double rate;
+      if (cached != null && now.difference(cached.asOf).inMinutes < 60) {
+        rate = cached.rate;
+      } else {
+        final quote = await _exchangeClient!.getRate(from: 'XAF', to: 'USD');
+        await db.setCachedFxRate(
+            from: 'XAF', to: 'USD', rate: quote.rate, asOf: quote.asOf);
+        rate = quote.rate;
+      }
+      if (!mounted) return;
+      setState(() => _xafToUsdRate = rate);
+    } on Object catch (_) {
+      // Rate unavailable — show '—' for USD
+    } finally {
+      if (mounted) setState(() => _isLoadingRate = false);
+    }
   }
 
   String get _currentMonth {
@@ -145,12 +188,13 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
   // ── Widgets ──
 
   Widget _buildSummaryCard() {
-    double totalBase = 0;
     double totalXaf = 0;
     for (final s in _snapshots) {
-      totalBase += s.totalIncomeBase;
       totalXaf += s.totalIncomeXaf;
     }
+    final totalUsd = (_xafToUsdRate != null && totalXaf > 0)
+        ? totalXaf * _xafToUsdRate!
+        : null;
 
     return Container(
       width: double.infinity,
@@ -224,18 +268,23 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            _formatMoney(totalBase, 'USD'),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 28,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.5,
+          // USD total
+          if (_isLoadingRate)
+            const SkeletonBox(width: 200, height: 32)
+          else
+            Text(
+              totalUsd != null ? _formatMoney(totalUsd, 'USD') : '—',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.5,
+              ),
             ),
-          ),
           const SizedBox(height: 4),
+          // XAF total
           Text(
-            _formatMoney(totalXaf, 'XAF'),
+            totalXaf > 0 ? _formatMoney(totalXaf, 'XAF') : '—',
             style: TextStyle(
               color: Colors.white.withOpacity(0.6),
               fontSize: 16,

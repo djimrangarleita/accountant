@@ -8,6 +8,8 @@ import '../exchange/exchange_rate_client.dart';
 import '../exchange/open_exchange_rates_service.dart';
 import '../income_database.dart';
 import '../project.dart';
+import '../time_entries/add_time_entry_sheet.dart';
+import '../time_entries/hour_logs_page.dart';
 import '../widgets/currency_badge.dart';
 import '../widgets/currency_selector.dart';
 import '../widgets/skeleton_box.dart';
@@ -208,20 +210,6 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     final rate = double.tryParse(rawRate);
     if (rate == null || rate <= 0) return false;
 
-    final rawHours = _hoursController.text.trim().replaceAll(',', '');
-    final rawMinutes = _minutesController.text.trim().replaceAll(',', '');
-    final rawSeconds = _secondsController.text.trim().replaceAll(',', '');
-
-    final hours = rawHours.isEmpty ? 0.0 : double.tryParse(rawHours);
-    if (hours == null || hours < 0) return false;
-    final minutes = rawMinutes.isEmpty ? 0 : int.tryParse(rawMinutes);
-    final seconds = rawSeconds.isEmpty ? 0 : int.tryParse(rawSeconds);
-
-    if (minutes == null || minutes < 0 || minutes >= 60) return false;
-    if (seconds == null || seconds < 0 || seconds >= 60) return false;
-
-    final totalHours = hours + minutes / 60.0 + seconds / 3600.0;
-
     final rawAdj = _fxAdjustmentController.text.trim().replaceAll(',', '');
     final fxAdj = double.tryParse(rawAdj) ?? 0.0;
 
@@ -232,7 +220,6 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
       name: name,
       hourlyRate: rate,
       baseCurrency: _currency,
-      totalHours: totalHours,
       fxAdjustmentPercent: fxAdj,
       bonus: bonus,
       updatedAt: DateTime.now().toUtc(),
@@ -249,6 +236,46 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
 
     await _updateConversion();
     return true;
+  }
+
+  Future<void> _addTimeEntry() async {
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => AddTimeEntrySheet(projectId: widget.projectId),
+    );
+    if (result == true) await _refreshAfterEntryChange();
+  }
+
+  Future<void> _openHourLogs() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => HourLogsPage(projectId: widget.projectId),
+      ),
+    );
+    await _refreshAfterEntryChange();
+  }
+
+  Future<void> _refreshAfterEntryChange() async {
+    final db = IncomeDatabase.instance;
+    final totalHours = await db.getTotalHoursForProject(widget.projectId);
+    final project = await db.getProjectById(widget.projectId);
+    if (!mounted || project == null) return;
+
+    final totalSeconds = (totalHours * 3600).round();
+    final h = totalSeconds ~/ 3600;
+    final m = (totalSeconds % 3600) ~/ 60;
+    final s = totalSeconds % 60;
+    _hoursController.text = h.toString();
+    _minutesController.text = m.toString();
+    _secondsController.text = s.toString();
+
+    setState(() {
+      _project = project;
+      _totalIncomeBase = project.totalIncome;
+      _baseToXafRate = null;
+    });
+    await _updateConversion();
   }
 
   Future<void> _deleteProject() async {
@@ -506,6 +533,12 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
           ),
         ],
       ),
+      floatingActionButton: project != null
+          ? FloatingActionButton(
+              onPressed: _addTimeEntry,
+              child: const Icon(Icons.timer_outlined),
+            )
+          : null,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : project == null
@@ -522,7 +555,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                       // Scrollable form in the middle
                       Expanded(
                         child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -591,41 +624,64 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                               ),
                               const SizedBox(height: 12),
 
-                              // Time section
-                              _buildSectionCard(
-                                title: 'TIME',
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: TextField(
-                                          controller: _hoursController,
-                                          readOnly: true,
-                                          decoration: const InputDecoration(
-                                              labelText: 'Hours'),
+                              // Time section — tappable to open Hour Logs
+                              GestureDetector(
+                                onTap: _openHourLogs,
+                                child: _buildSectionCard(
+                                  title: 'TIME',
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _hoursController,
+                                            readOnly: true,
+                                            decoration: const InputDecoration(
+                                                labelText: 'Hours'),
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: TextField(
-                                          controller: _minutesController,
-                                          readOnly: true,
-                                          decoration: const InputDecoration(
-                                              labelText: 'Min'),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _minutesController,
+                                            readOnly: true,
+                                            decoration: const InputDecoration(
+                                                labelText: 'Min'),
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: TextField(
-                                          controller: _secondsController,
-                                          readOnly: true,
-                                          decoration: const InputDecoration(
-                                              labelText: 'Sec'),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _secondsController,
+                                            readOnly: true,
+                                            decoration: const InputDecoration(
+                                                labelText: 'Sec'),
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          'View all time entries',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade500,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Icon(
+                                          Icons.chevron_right,
+                                          size: 16,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                               ),
                               const SizedBox(height: 12),
 

@@ -9,6 +9,7 @@ import '../income_database.dart';
 import '../monthly_snapshot.dart';
 import '../project.dart';
 import '../settings/settings_page.dart';
+import '../time_entries/add_time_entry_sheet.dart';
 import '../widgets/currency_badge.dart';
 import '../widgets/currency_selector.dart';
 import '../widgets/skeleton_box.dart';
@@ -257,6 +258,15 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
       ),
     );
     await _load();
+  }
+
+  Future<void> _showAddTimeEntrySheet() async {
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const AddTimeEntrySheet(),
+    );
+    if (result == true) await _load();
   }
 
   Future<void> _openProject(Project project) async {
@@ -554,9 +564,28 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
                     ),
                   ],
                 ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddProjectSheet,
-        child: const Icon(Icons.add),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.small(
+            heroTag: 'fab_add_project',
+            onPressed: _showAddProjectSheet,
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: Colors.black, width: 1.5),
+            ),
+            elevation: 0,
+            child: const Icon(Icons.add, size: 20),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag: 'fab_timer',
+            onPressed: _showAddTimeEntrySheet,
+            child: const Icon(Icons.timer_outlined),
+          ),
+        ],
       ),
     );
   }

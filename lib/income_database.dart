@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import 'income_entry.dart';
 import 'monthly_snapshot.dart';
 import 'project.dart';
+import 'time_entry.dart';
 
 class IncomeDatabase {
   IncomeDatabase._internal();
@@ -26,6 +27,7 @@ class IncomeDatabase {
   static const String _projectsTable = 'projects';
   static const String _fxCacheTable = 'fx_cache';
   static const String _snapshotsTable = 'monthly_snapshots';
+  static const String _timeEntriesTable = 'time_entries';
 
   Future<Database> get database async {
     final existing = _database;
@@ -42,13 +44,14 @@ class IncomeDatabase {
 
     return openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: (db, version) async {
         await _createIncomeEntriesTable(db);
         await _createConfigTable(db);
         await _createProjectsTable(db);
         await _createFxCacheTable(db);
         await _createMonthlySnapshotsTable(db);
+        await _createTimeEntriesTable(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -80,6 +83,10 @@ class IncomeDatabase {
         }
         if (oldVersion < 9) {
           await _recreateSnapshotsWithoutUnique(db);
+        }
+        if (oldVersion < 10) {
+          await _createTimeEntriesTable(db);
+          await _migrateExistingHoursToTimeEntries(db);
         }
       },
     );
@@ -177,6 +184,40 @@ class IncomeDatabase {
     await db.execute(
       'ALTER TABLE ${_snapshotsTable}_new RENAME TO $_snapshotsTable',
     );
+  }
+
+  Future<void> _createTimeEntriesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_timeEntriesTable(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        projectId INTEGER NOT NULL,
+        hours REAL NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        date TEXT NOT NULL,
+        createdAt TEXT NOT NULL
+      )
+    ''');
+  }
+
+  /// One-time migration: converts each project's existing totalHours into a
+  /// single legacy time entry so hours are not lost.
+  Future<void> _migrateExistingHoursToTimeEntries(Database db) async {
+    final projects = await db.query(_projectsTable);
+    final now = DateTime.now().toUtc().toIso8601String();
+    final today =
+        '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}';
+    for (final p in projects) {
+      final hours = (p['totalHours'] as num?)?.toDouble() ?? 0.0;
+      if (hours <= 0) continue;
+      final projectId = p['id'] as int;
+      await db.insert(_timeEntriesTable, {
+        'projectId': projectId,
+        'hours': hours,
+        'note': 'Migrated from previous total',
+        'date': today,
+        'createdAt': now,
+      });
+    }
   }
 
   // Income entries API (currently unused by UI but kept for future use).
@@ -412,6 +453,79 @@ class IncomeDatabase {
     );
   }
 
+  // Time entries API.
+
+  Future<int> insertTimeEntry(TimeEntry entry) async {
+    final db = await database;
+    return db.insert(_timeEntriesTable, entry.toMap());
+  }
+
+  Future<void> updateTimeEntry(TimeEntry entry) async {
+    if (entry.id == null) {
+      throw ArgumentError('TimeEntry id is required for update.');
+    }
+    final db = await database;
+    await db.update(
+      _timeEntriesTable,
+      entry.toMap(),
+      where: 'id = ?',
+      whereArgs: [entry.id],
+    );
+  }
+
+  Future<void> deleteTimeEntry(int id) async {
+    final db = await database;
+    await db.delete(
+      _timeEntriesTable,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<List<TimeEntry>> getTimeEntriesForProject(int projectId) async {
+    final db = await database;
+    final maps = await db.query(
+      _timeEntriesTable,
+      where: 'projectId = ?',
+      whereArgs: [projectId],
+      orderBy: 'date DESC, createdAt DESC',
+    );
+    return maps.map(TimeEntry.fromMap).toList();
+  }
+
+  Future<double> getTotalHoursForProject(int projectId) async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT SUM(hours) AS total FROM $_timeEntriesTable WHERE projectId = ?',
+      [projectId],
+    );
+    if (result.isEmpty) return 0.0;
+    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+  }
+
+  /// Returns the projectId that has the most recent time entry, or null.
+  Future<int?> getMostRecentlyUsedProjectId() async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT projectId FROM $_timeEntriesTable ORDER BY createdAt DESC LIMIT 1',
+    );
+    if (result.isEmpty) return null;
+    return (result.first['projectId'] as num?)?.toInt();
+  }
+
+  /// Recalculates and persists totalHours on the project from its time entries.
+  Future<double> syncProjectTotalHours(int projectId) async {
+    final total = await getTotalHoursForProject(projectId);
+    final db = await database;
+    await db.update(
+      _projectsTable,
+      {'totalHours': total, 'updatedAt': DateTime.now().toUtc().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [projectId],
+    );
+    return total;
+  }
+
   // Monthly snapshots API.
 
   /// Returns true only if the month has been explicitly closed (frozen).
@@ -539,6 +653,11 @@ class IncomeDatabase {
             'updatedAt': DateTime.now().toUtc().toIso8601String(),
           },
           where: 'id = ?',
+          whereArgs: [pid],
+        );
+        await txn.delete(
+          _timeEntriesTable,
+          where: 'projectId = ?',
           whereArgs: [pid],
         );
       }

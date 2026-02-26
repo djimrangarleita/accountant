@@ -183,7 +183,7 @@ class _AddTimeEntrySheetState extends State<AddTimeEntrySheet> {
               width: 32,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey.shade300,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -201,7 +201,7 @@ class _AddTimeEntrySheetState extends State<AddTimeEntrySheet> {
             else if (_projects.isEmpty)
               Text(
                 'No projects available. Create a project first.',
-                style: TextStyle(color: Colors.grey.shade600),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
               )
             else
               DropdownButtonFormField<int>(
@@ -277,12 +277,12 @@ class _AddTimeEntrySheetState extends State<AddTimeEntrySheet> {
             child: FilledButton(
               onPressed: _saving ? null : _save,
               child: _saving
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: Theme.of(context).colorScheme.onPrimary,
                       ),
                     )
                   : Text(_isEditing ? 'Save changes' : 'Log time'),

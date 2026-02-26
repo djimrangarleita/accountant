@@ -7,16 +7,17 @@ class CurrencyBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.black,
+        color: colors.primary,
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
         code.toUpperCase(),
-        style: const TextStyle(
-          color: Colors.white,
+        style: TextStyle(
+          color: colors.onPrimary,
           fontSize: 10,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.5,

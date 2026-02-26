@@ -140,7 +140,7 @@ class _CurrencyPickerPageState extends State<_CurrencyPickerPage> {
                         subtitle: Text(c.name),
                         selected: isSelected,
                         trailing: isSelected
-                            ? const Icon(Icons.check, color: Colors.black)
+                            ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
                             : null,
                         onTap: () => Navigator.of(context).pop(c.code),
                       );

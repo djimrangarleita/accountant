@@ -144,10 +144,6 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
             child: const Text('Cancel'),
           ),
           OutlinedButton(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.black,
-              side: const BorderSide(color: Colors.black),
-            ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Approve & Pay'),
           ),
@@ -196,12 +192,16 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
         ? totalXaf * _xafToUsdRate!
         : null;
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF2A2A2A) : Colors.black;
+    const cardFg = Colors.white;
+
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.black,
+        color: cardBg,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -214,7 +214,7 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                 child: Text(
                   'Expected Income · $_monthLabel',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.7),
+                    color: cardFg.withOpacity(0.7),
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
                     letterSpacing: 0.5,
@@ -253,13 +253,13 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.15),
+                    color: cardFg.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     '${_snapshots.length} project${_snapshots.length == 1 ? '' : 's'}',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
+                      color: cardFg.withOpacity(0.8),
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
                     ),
@@ -268,25 +268,23 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
             ],
           ),
           const SizedBox(height: 12),
-          // USD total
           if (_isLoadingRate)
             const SkeletonBox(width: 200, height: 32)
           else
             Text(
               totalUsd != null ? _formatMoney(totalUsd, 'USD') : '—',
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: cardFg,
                 fontSize: 28,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.5,
               ),
             ),
           const SizedBox(height: 4),
-          // XAF total
           Text(
             totalXaf > 0 ? _formatMoney(totalXaf, 'XAF') : '—',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.6),
+              color: cardFg.withOpacity(0.6),
               fontSize: 16,
               fontWeight: FontWeight.w400,
             ),
@@ -368,7 +366,7 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                   if (!_isClosed) ...[
                     const SizedBox(width: 4),
                     Icon(Icons.chevron_right,
-                        size: 18, color: Colors.grey.shade400),
+                        size: 18, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),
                   ],
                 ],
               ),
@@ -395,7 +393,7 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                               : '—',
                           style: TextStyle(
                             fontSize: 14,
-                            color: Colors.grey.shade600,
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                           ),
                         ),
                       ],
@@ -409,7 +407,7 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
-                          color: Colors.grey.shade700,
+                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -417,7 +415,7 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                         '${_formatMoney(snapshot.hourlyRate, snapshot.baseCurrency)}/h',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey.shade500,
+                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
                         ),
                       ),
                       if (snapshot.bonus > 0) ...[
@@ -426,7 +424,7 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                           '+${_formatMoney(snapshot.bonus, snapshot.baseCurrency)} bonus',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey.shade500,
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
                           ),
                         ),
                       ],
@@ -521,12 +519,12 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: SizedBox(
         width: double.infinity,
-        child: OutlinedButton(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.black,
-            side: const BorderSide(color: Colors.black),
-            padding: const EdgeInsets.symmetric(vertical: 14),
-          ),
+        child:           OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.onSurface,
+              side: BorderSide(color: Theme.of(context).colorScheme.onSurface),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
           onPressed: _isClosing ? null : _approveAndPay,
           child: _isClosing
               ? const SizedBox(

@@ -245,8 +245,8 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
               padding: const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(
                 color: _fromExistingProject
-                    ? Colors.black
-                    : Colors.grey.shade200,
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.onSurface.withOpacity(0.1),
                 borderRadius: const BorderRadius.horizontal(
                   left: Radius.circular(8),
                 ),
@@ -257,8 +257,9 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color:
-                      _fromExistingProject ? Colors.white : Colors.grey.shade700,
+                  color: _fromExistingProject
+                      ? Theme.of(context).colorScheme.onPrimary
+                      : Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                 ),
               ),
             ),
@@ -277,8 +278,8 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
               padding: const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(
                 color: !_fromExistingProject
-                    ? Colors.black
-                    : Colors.grey.shade200,
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.onSurface.withOpacity(0.1),
                 borderRadius: const BorderRadius.horizontal(
                   right: Radius.circular(8),
                 ),
@@ -290,8 +291,8 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: !_fromExistingProject
-                      ? Colors.white
-                      : Colors.grey.shade700,
+                      ? Theme.of(context).colorScheme.onPrimary
+                      : Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                 ),
               ),
             ),
@@ -313,7 +314,7 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
         padding: const EdgeInsets.symmetric(vertical: 16),
         child: Text(
           'No projects available. Use "New entry" instead.',
-          style: TextStyle(color: Colors.grey.shade600),
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5)),
         ),
       );
     }
@@ -339,7 +340,7 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.06),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -350,7 +351,7 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: Colors.grey.shade600,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
               letterSpacing: 0.5,
             ),
           ),
@@ -368,7 +369,7 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
             _xafRate > 0 ? _formatMoney(_totalIncomeXaf, 'XAF') : '—',
             style: TextStyle(
               fontSize: 15,
-              color: Colors.grey.shade600,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
             ),
           ),
         ],
@@ -466,12 +467,12 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
               child: FilledButton(
                 onPressed: _saving ? null : _save,
                 child: _saving
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: Theme.of(context).colorScheme.onPrimary,
                         ),
                       )
                     : Text(_isEditing ? 'Save changes' : 'Save entry'),

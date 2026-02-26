@@ -23,6 +23,7 @@ class IncomeDatabase {
   static const String fxUsdXafRateKey = 'fx_usd_xaf_rate';
   static const String fxUsdXafTimestampKey = 'fx_usd_xaf_timestamp';
   static const String lastActiveMonthKey = 'last_active_month';
+  static const String themeModeKey = 'theme_mode';
 
   static const String _projectsTable = 'projects';
   static const String _fxCacheTable = 'fx_cache';
@@ -323,6 +324,12 @@ class IncomeDatabase {
 
   Future<String?> getLastActiveMonth() =>
       _getConfigString(lastActiveMonthKey);
+
+  Future<void> setThemeMode(String mode) =>
+      _setConfigString(themeModeKey, mode);
+
+  Future<String> getThemeMode() async =>
+      (await _getConfigString(themeModeKey)) ?? 'system';
 
   Future<void> setCachedUsdToXafRate(double rate, DateTime asOf) async {
     await _setConfigDouble(fxUsdXafRateKey, rate);

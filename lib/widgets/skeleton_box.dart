@@ -37,6 +37,10 @@ class _SkeletonBoxState extends State<SkeletonBox>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colorA = isDark ? Colors.grey.shade800 : Colors.grey.shade200;
+    final colorB = isDark ? Colors.grey.shade700 : Colors.grey.shade300;
+
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
@@ -44,11 +48,7 @@ class _SkeletonBoxState extends State<SkeletonBox>
           width: widget.width,
           height: widget.height,
           decoration: BoxDecoration(
-            color: Color.lerp(
-              Colors.grey.shade200,
-              Colors.grey.shade300,
-              _controller.value,
-            ),
+            color: Color.lerp(colorA, colorB, _controller.value),
             borderRadius: BorderRadius.circular(widget.borderRadius),
           ),
         );

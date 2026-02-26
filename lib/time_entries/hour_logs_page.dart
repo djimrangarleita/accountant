@@ -121,20 +121,21 @@ class _HourLogsPageState extends State<HourLogsPage> {
   }
 
   Widget _buildEmptyState() {
+    final muted = Theme.of(context).colorScheme.onSurface.withOpacity(0.4);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.timer_off_outlined, size: 48, color: Colors.grey.shade400),
+          Icon(Icons.timer_off_outlined, size: 48, color: muted),
           const SizedBox(height: 12),
           Text(
             'No time entries yet',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5), fontSize: 16),
           ),
           const SizedBox(height: 4),
           Text(
             'Tap the timer button to log your first entry',
-            style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+            style: TextStyle(color: muted, fontSize: 13),
           ),
         ],
       ),
@@ -166,19 +167,19 @@ class _HourLogsPageState extends State<HourLogsPage> {
               children: [
                 Text(
                   dateLabel,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: 13,
-                    color: Colors.grey,
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.45),
                   ),
                 ),
                 const Spacer(),
                 Text(
                   _formatDuration(dayTotal),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: 13,
-                    color: Colors.grey,
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.45),
                   ),
                 ),
               ],
@@ -220,7 +221,7 @@ class _HourLogsPageState extends State<HourLogsPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.08),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -236,10 +237,10 @@ class _HourLogsPageState extends State<HourLogsPage> {
                     children: [
                       Text(
                         entry.note.isNotEmpty ? entry.note : '—',
-                        style: TextStyle(
-                          color: entry.note.isNotEmpty
-                              ? Colors.black87
-                              : Colors.grey.shade400,
+                    style: TextStyle(
+                      color: entry.note.isNotEmpty
+                          ? Theme.of(context).colorScheme.onSurface
+                          : Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
                           fontSize: 14,
                         ),
                         maxLines: 2,
@@ -250,14 +251,14 @@ class _HourLogsPageState extends State<HourLogsPage> {
                         _formatCreatedAt(entry.createdAt),
                         style: TextStyle(
                           fontSize: 11,
-                          color: Colors.grey.shade500,
+                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right,
-                    size: 20, color: Colors.grey),
+                Icon(Icons.chevron_right,
+                    size: 20, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),
               ],
             ),
           ),

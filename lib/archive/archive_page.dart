@@ -152,6 +152,7 @@ class _ArchivePageState extends State<ArchivePage> {
   }
 
   Widget _buildEmptyState() {
+    final muted = Theme.of(context).colorScheme.onSurface.withOpacity(0.3);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 48),
@@ -161,7 +162,7 @@ class _ArchivePageState extends State<ArchivePage> {
             Icon(
               Icons.archive_outlined,
               size: 56,
-              color: Colors.grey.shade300,
+              color: muted,
             ),
             const SizedBox(height: 16),
             const Text(
@@ -177,7 +178,7 @@ class _ArchivePageState extends State<ArchivePage> {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.grey.shade600,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                 height: 1.4,
               ),
             ),
@@ -245,7 +246,7 @@ class _ArchivePageState extends State<ArchivePage> {
                     '$projectCount project${projectCount == 1 ? '' : 's'}',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey.shade500,
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -255,7 +256,7 @@ class _ArchivePageState extends State<ArchivePage> {
                     decoration: BoxDecoration(
                       color: isClosed
                           ? Colors.green.shade700
-                          : Colors.grey.shade200,
+                          : Theme.of(context).colorScheme.onSurface.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Row(
@@ -273,7 +274,7 @@ class _ArchivePageState extends State<ArchivePage> {
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
                             color:
-                                isClosed ? Colors.white : Colors.grey.shade700,
+                                isClosed ? Colors.white : Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                           ),
                         ),
                       ],
@@ -307,14 +308,14 @@ class _ArchivePageState extends State<ArchivePage> {
                           totalXaf > 0 ? _formatMoney(totalXaf, 'XAF') : '—',
                           style: TextStyle(
                             fontSize: 14,
-                            color: Colors.grey.shade600,
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                           ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 4),
-                  Icon(Icons.chevron_right, color: Colors.grey.shade400),
+                  Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),
                 ],
               ),
             ],

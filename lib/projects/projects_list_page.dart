@@ -318,12 +318,16 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
   // ── Widgets ──
 
   Widget _buildSummaryCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF2A2A2A) : Colors.black;
+    const cardFg = Colors.white;
+
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.black,
+        color: cardBg,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -335,7 +339,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
               Text(
                 'Expected Income · ${DateFormat.yMMMM().format(DateTime.now())}',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.7),
+                  color: cardFg.withOpacity(0.7),
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                   letterSpacing: 0.5,
@@ -346,13 +350,13 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.15),
+                    color: cardFg.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     '${_projects.length} project${_projects.length == 1 ? '' : 's'}',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
+                      color: cardFg.withOpacity(0.8),
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
                     ),
@@ -369,15 +373,15 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
             Text(
               _totalsError!,
               style: TextStyle(
-                color: Colors.white.withOpacity(0.6),
+                color: cardFg.withOpacity(0.6),
                 fontSize: 13,
               ),
             )
           else ...[
             Text(
               _totalUsd != null ? _formatMoney(_totalUsd!, 'USD') : '—',
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: cardFg,
                 fontSize: 28,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.5,
@@ -387,7 +391,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
             Text(
               _totalXaf != null ? _formatMoney(_totalXaf!, 'XAF') : '—',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.6),
+                color: cardFg.withOpacity(0.6),
                 fontSize: 16,
                 fontWeight: FontWeight.w400,
               ),
@@ -451,7 +455,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade200,
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -459,7 +463,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade700,
+                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                         ),
                       ),
                     ),
@@ -491,7 +495,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
                                 : '—',
                             style: TextStyle(
                               fontSize: 14,
-                              color: Colors.grey.shade600,
+                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                             ),
                           ),
                       ],
@@ -505,7 +509,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
-                          color: Colors.grey.shade700,
+                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -513,13 +517,13 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
                         '${_formatMoney(project.hourlyRate, project.baseCurrency)}/h',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey.shade500,
+                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(width: 4),
-                  Icon(Icons.chevron_right, color: Colors.grey.shade400),
+                  Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),
                 ],
               ),
             ],
@@ -531,6 +535,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
   }
 
   Widget _buildEmptyState() {
+    final muted = Theme.of(context).colorScheme.onSurface.withOpacity(0.3);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 48),
@@ -540,7 +545,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
             Icon(
               Icons.work_outline_rounded,
               size: 56,
-              color: Colors.grey.shade300,
+              color: muted,
             ),
             const SizedBox(height: 16),
             const Text(
@@ -556,7 +561,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.grey.shade600,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                 height: 1.4,
               ),
             ),
@@ -614,11 +619,11 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
           FloatingActionButton.small(
             heroTag: 'fab_add_project',
             onPressed: _showAddProjectSheet,
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black,
+            backgroundColor: Theme.of(context).colorScheme.surface,
+            foregroundColor: Theme.of(context).colorScheme.onSurface,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
-              side: const BorderSide(color: Colors.black, width: 1.5),
+              side: BorderSide(color: Theme.of(context).colorScheme.onSurface, width: 1.5),
             ),
             elevation: 0,
             child: const Icon(Icons.add, size: 20),
@@ -700,7 +705,7 @@ class _AddProjectSheetState extends State<_AddProjectSheet> {
               width: 32,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey.shade300,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -735,12 +740,12 @@ class _AddProjectSheetState extends State<_AddProjectSheet> {
             child: FilledButton(
               onPressed: _saving ? null : _save,
               child: _saving
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: Theme.of(context).colorScheme.onPrimary,
                       ),
                     )
                   : const Text('Create project'),

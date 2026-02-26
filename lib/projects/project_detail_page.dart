@@ -357,11 +357,15 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   // ── Build helpers ──
 
   Widget _buildResultsSection(Project project) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF2A2A2A) : Colors.black;
+    const cardFg = Colors.white;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.black,
+        color: cardBg,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -372,7 +376,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
               Text(
                 'Expected Income · ${DateFormat.yMMMM().format(DateTime.now())}',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.7),
+                  color: cardFg.withOpacity(0.7),
                   fontSize: 11,
                   fontWeight: FontWeight.w500,
                 ),
@@ -384,12 +388,12 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                   children: [
                     Icon(Icons.check_circle,
                         size: 12,
-                        color: Colors.white.withOpacity(0.7)),
+                        color: cardFg.withOpacity(0.7)),
                     const SizedBox(width: 4),
                     Text(
                       'Saved',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
+                        color: cardFg.withOpacity(0.7),
                         fontSize: 11,
                       ),
                     ),
@@ -407,8 +411,8 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                       ? _formatMoney(
                           _totalIncomeBase!, project.baseCurrency)
                       : '—',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: cardFg,
                     fontSize: 24,
                     fontWeight: FontWeight.w700,
                     letterSpacing: -0.5,
@@ -421,14 +425,14 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
           const SizedBox(height: 8),
           Container(
             height: 1,
-            color: Colors.white.withOpacity(0.15),
+            color: cardFg.withOpacity(0.15),
           ),
           const SizedBox(height: 8),
           if (_fxError != null)
             Text(
               _fxError!,
               style: TextStyle(
-                color: Colors.white.withOpacity(0.5),
+                color: cardFg.withOpacity(0.5),
                 fontSize: 11,
               ),
             )
@@ -443,7 +447,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                     _formatMoney(
                         _totalIncomeBase! * _baseToXafRate!, 'XAF'),
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
+                      color: cardFg.withOpacity(0.8),
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
@@ -456,7 +460,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
             Text(
               _formatRate(_baseToXafRate!, 'XAF'),
               style: TextStyle(
-                color: Colors.white.withOpacity(0.4),
+                color: cardFg.withOpacity(0.4),
                 fontSize: 10,
               ),
             ),
@@ -464,7 +468,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
             Text(
               '—',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.5),
+                color: cardFg.withOpacity(0.5),
                 fontSize: 16,
               ),
             ),
@@ -488,7 +492,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: Colors.grey.shade600,
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
                 letterSpacing: 0.3,
               ),
             ),
@@ -603,7 +607,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                     'Bank FX adjustment',
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: Colors.grey.shade700,
+                                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                                     ),
                                   ),
                                   const SizedBox(height: 8),
@@ -669,14 +673,14 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                           'View all time entries',
                                           style: TextStyle(
                                             fontSize: 12,
-                                            color: Colors.grey.shade500,
+                                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
                                           ),
                                         ),
                                         const SizedBox(width: 4),
                                         Icon(
                                           Icons.chevron_right,
                                           size: 16,
-                                          color: Colors.grey.shade500,
+                                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
                                         ),
                                       ],
                                     ),

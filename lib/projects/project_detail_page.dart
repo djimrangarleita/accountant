@@ -45,6 +45,13 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   Timer? _autoSaveTimer;
   bool _showSavedIndicator = false;
 
+  // Inline validation errors
+  String? _nameError;
+  String? _rateError;
+
+  // Snapshot of last persisted values — used to detect real changes
+  _FieldSnapshot? _lastSaved;
+
   @override
   void initState() {
     super.initState();
@@ -108,35 +115,48 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     _minutesController.text = m.toString();
     _secondsController.text = s.toString();
 
+    // Capture baseline so we can detect real changes later
+    _lastSaved = _currentSnapshot();
+
     _recomputeTotals();
-    _addFieldListeners();
     await _updateConversion();
   }
 
-  void _addFieldListeners() {
-    for (final c in [
-      _nameController,
-      _rateController,
-      _hoursController,
-      _minutesController,
-      _secondsController,
-      _fxAdjustmentController,
-      _bonusController,
-    ]) {
-      c.addListener(_onFieldChanged);
-    }
+  /// Returns a snapshot of the current field values.
+  _FieldSnapshot _currentSnapshot() => _FieldSnapshot(
+        name: _nameController.text,
+        rate: _rateController.text,
+        currency: _currency,
+        fxAdj: _fxAdjustmentController.text,
+        bonus: _bonusController.text,
+      );
+
+  /// Called from each TextField's onChanged and the currency selector.
+  void _onFieldChanged() {
+    final snap = _currentSnapshot();
+    if (snap == _lastSaved) return; // nothing actually changed
+
+    _validate();
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer(const Duration(milliseconds: 600), _autoSave);
   }
 
-  void _onFieldChanged() {
-    _autoSaveTimer?.cancel();
-    _autoSaveTimer = Timer(const Duration(milliseconds: 500), () {
-      _autoSave();
+  void _validate() {
+    final name = _nameController.text.trim();
+    final rawRate = _rateController.text.trim().replaceAll(',', '');
+    final rate = double.tryParse(rawRate);
+    setState(() {
+      _nameError = name.isEmpty ? 'Project name is required' : null;
+      _rateError = (rate == null || rate <= 0) ? 'Enter a valid hourly rate' : null;
     });
   }
 
   Future<void> _autoSave() async {
-    final ok = await _trySave(showSnackOnError: false);
+    if (_nameError != null || _rateError != null) return;
+    final snapBeforeSave = _currentSnapshot();
+    final ok = await _trySave();
     if (ok && mounted) {
+      _lastSaved = snapBeforeSave;
       setState(() => _showSavedIndicator = true);
       Future.delayed(const Duration(seconds: 2), () {
         if (mounted) setState(() => _showSavedIndicator = false);
@@ -177,8 +197,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     });
   }
 
-  /// Returns true if save succeeded.
-  Future<bool> _trySave({bool showSnackOnError = true}) async {
+  Future<bool> _trySave() async {
     final project = _project;
     if (project == null) return false;
 
@@ -230,44 +249,6 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
 
     await _updateConversion();
     return true;
-  }
-
-  Future<void> _calculateAndSave() async {
-    final project = _project;
-    if (project == null) return;
-
-    final name = _nameController.text.trim();
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Project name is required')),
-      );
-      return;
-    }
-
-    final rawRate = _rateController.text.trim().replaceAll(',', '');
-    final rate = double.tryParse(rawRate);
-    if (rate == null || rate <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid hourly rate')),
-      );
-      return;
-    }
-
-    final ok = await _trySave(showSnackOnError: true);
-    if (ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
-              SizedBox(width: 8),
-              Text('Saved'),
-            ],
-          ),
-          duration: Duration(seconds: 1),
-        ),
-      );
-    }
   }
 
   Future<void> _deleteProject() async {
@@ -553,8 +534,10 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                     controller: _nameController,
                                     textCapitalization:
                                         TextCapitalization.words,
-                                    decoration: const InputDecoration(
-                                        labelText: 'Project name'),
+                                    decoration: InputDecoration(
+                                        labelText: 'Project name',
+                                        errorText: _nameError),
+                                    onChanged: (_) => _onFieldChanged(),
                                   ),
                                   const SizedBox(height: 12),
                                   CurrencySelector(
@@ -570,6 +553,17 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                       });
                                       _onFieldChanged();
                                     },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextField(
+                                    controller: _rateController,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                            decimal: true),
+                                    decoration: InputDecoration(
+                                        labelText: 'Hourly rate',
+                                        errorText: _rateError),
+                                    onChanged: (_) => _onFieldChanged(),
                                   ),
                                   const SizedBox(height: 12),
                                   Text(
@@ -591,6 +585,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                       hintText: 'e.g. -10 or 10',
                                       suffixText: '%',
                                     ),
+                                    onChanged: (_) => _onFieldChanged(),
                                   ),
                                 ],
                               ),
@@ -605,9 +600,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                       Expanded(
                                         child: TextField(
                                           controller: _hoursController,
-                                          keyboardType: const TextInputType
-                                              .numberWithOptions(
-                                              decimal: true),
+                                          readOnly: true,
                                           decoration: const InputDecoration(
                                               labelText: 'Hours'),
                                         ),
@@ -616,8 +609,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                       Expanded(
                                         child: TextField(
                                           controller: _minutesController,
-                                          keyboardType: const TextInputType
-                                              .numberWithOptions(),
+                                          readOnly: true,
                                           decoration: const InputDecoration(
                                               labelText: 'Min'),
                                         ),
@@ -626,29 +618,12 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                       Expanded(
                                         child: TextField(
                                           controller: _secondsController,
-                                          keyboardType: const TextInputType
-                                              .numberWithOptions(),
+                                          readOnly: true,
                                           decoration: const InputDecoration(
                                               labelText: 'Sec'),
                                         ),
                                       ),
                                     ],
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-
-                              // Rate section
-                              _buildSectionCard(
-                                title: 'RATE',
-                                children: [
-                                  TextField(
-                                    controller: _rateController,
-                                    keyboardType:
-                                        const TextInputType.numberWithOptions(
-                                            decimal: true),
-                                    decoration: const InputDecoration(
-                                        labelText: 'Hourly rate'),
                                   ),
                                 ],
                               ),
@@ -665,22 +640,11 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                             decimal: true),
                                     decoration: const InputDecoration(
                                         labelText: 'Flat bonus payment'),
+                                    onChanged: (_) => _onFieldChanged(),
                                   ),
                                 ],
                               ),
                             ],
-                          ),
-                        ),
-                      ),
-
-                      // Fixed button at bottom
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: FilledButton(
-                            onPressed: _calculateAndSave,
-                            child: const Text('Calculate & save'),
                           ),
                         ),
                       ),
@@ -689,4 +653,34 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                 ),
     );
   }
+}
+
+/// Lightweight snapshot of editable field values for change detection.
+class _FieldSnapshot {
+  const _FieldSnapshot({
+    required this.name,
+    required this.rate,
+    required this.currency,
+    required this.fxAdj,
+    required this.bonus,
+  });
+
+  final String name;
+  final String rate;
+  final String currency;
+  final String fxAdj;
+  final String bonus;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _FieldSnapshot &&
+      name == other.name &&
+      rate == other.rate &&
+      currency == other.currency &&
+      fxAdj == other.fxAdj &&
+      bonus == other.bonus;
+
+  @override
+  int get hashCode =>
+      Object.hash(name, rate, currency, fxAdj, bonus);
 }

@@ -446,11 +446,10 @@ class IncomeDatabase {
 
   Future<void> deleteProject(int id) async {
     final db = await database;
-    await db.delete(
-      _projectsTable,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.transaction((txn) async {
+      await txn.delete(_timeEntriesTable, where: 'projectId = ?', whereArgs: [id]);
+      await txn.delete(_projectsTable, where: 'id = ?', whereArgs: [id]);
+    });
   }
 
   // Time entries API.
@@ -611,6 +610,15 @@ class IncomeDatabase {
       _snapshotsTable,
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  Future<void> deleteAllSnapshotsForMonth(String month) async {
+    final db = await database;
+    await db.delete(
+      _snapshotsTable,
+      where: 'month = ?',
+      whereArgs: [month],
     );
   }
 

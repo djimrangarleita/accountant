@@ -451,10 +451,10 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
         margin: const EdgeInsets.symmetric(horizontal: 16),
         padding: const EdgeInsets.only(right: 20),
         decoration: BoxDecoration(
-          color: Colors.red.shade50,
+          color: Colors.red.shade400,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Icon(Icons.delete_outline, color: Colors.red.shade700),
+        child: const Icon(Icons.delete_outline, color: Colors.white),
       ),
       confirmDismiss: (_) async {
         return await showDialog<bool>(

@@ -269,6 +269,30 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
     if (result == true) await _load();
   }
 
+  Future<bool> _confirmDeleteProject(Project project) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete project'),
+        content: Text('Delete "${project.name}"? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   Future<void> _openProject(Project project) async {
     if (project.id == null) return;
     await Navigator.of(context).push<void>(
@@ -379,10 +403,29 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
         project.id != null ? _projectXafAmounts[project.id] : null;
     final rank = _sortedProjects.indexOf(project) + 1;
 
-    return GestureDetector(
-      onTap: () => _openProject(project),
-      child: Card(
+    return Dismissible(
+      key: ValueKey(project.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
         margin: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.only(right: 24),
+        decoration: BoxDecoration(
+          color: Colors.red.shade400,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.delete_outline, color: Colors.white),
+      ),
+      confirmDismiss: (_) => _confirmDeleteProject(project),
+      onDismissed: (_) async {
+        if (project.id == null) return;
+        await IncomeDatabase.instance.deleteProject(project.id!);
+        _load();
+      },
+      child: GestureDetector(
+        onTap: () => _openProject(project),
+        child: Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -482,6 +525,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

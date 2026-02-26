@@ -187,12 +187,38 @@ class _ArchivePageState extends State<ArchivePage> {
     );
   }
 
+  Future<bool> _confirmDeleteMonth(String month) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete archived month'),
+        content: Text(
+          'Delete all data for ${_monthLabel(month)}? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   Widget _buildMonthTile(
       String month, bool isClosed, double totalXaf, int projectCount) {
     final totalUsd =
         (_xafToUsdRate != null && totalXaf > 0) ? totalXaf * _xafToUsdRate! : null;
 
-    return GestureDetector(
+    final card = GestureDetector(
       onTap: () => _openMonth(month, isClosed),
       child: Card(
         margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -295,6 +321,27 @@ class _ArchivePageState extends State<ArchivePage> {
           ),
         ),
       ),
+    );
+
+    return Dismissible(
+      key: ValueKey(month),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.only(right: 24),
+        decoration: BoxDecoration(
+          color: Colors.red.shade400,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.delete_outline, color: Colors.white),
+      ),
+      confirmDismiss: (_) => _confirmDeleteMonth(month),
+      onDismissed: (_) async {
+        await IncomeDatabase.instance.deleteAllSnapshotsForMonth(month);
+        _load();
+      },
+      child: card,
     );
   }
 }

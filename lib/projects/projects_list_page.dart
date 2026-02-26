@@ -250,13 +250,12 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
       builder: (_) => const _AddProjectSheet(),
     );
     if (created == null || !mounted) return;
-    await _load();
-    if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => ProjectDetailPage(projectId: created.id!),
       ),
     );
+    if (!mounted) return;
     await _load();
   }
 

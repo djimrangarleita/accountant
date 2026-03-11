@@ -18,7 +18,7 @@ class ArchivePage extends StatefulWidget {
 
 class _ArchivePageState extends State<ArchivePage> {
   bool _isLoading = true;
-  List<({String month, bool isClosed, double totalXaf, int projectCount})>
+  List<({String month, bool allPaid, bool isArchived, double totalXaf, int projectCount, int paidCount})>
       _months = const [];
 
   ExchangeRateClient? _exchangeClient;
@@ -99,13 +99,10 @@ class _ArchivePageState extends State<ArchivePage> {
     return '${fmt.format(double.parse(amount.toStringAsFixed(2)))} $code';
   }
 
-  Future<void> _openMonth(String month, bool isClosed) async {
+  Future<void> _openMonth(String month) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => ArchiveMonthDetailPage(
-          month: month,
-          isClosed: isClosed,
-        ),
+        builder: (_) => ArchiveMonthDetailPage(month: month),
       ),
     );
     await _load();
@@ -132,15 +129,13 @@ class _ArchivePageState extends State<ArchivePage> {
           : _months.isEmpty
               ? _buildEmptyState()
               : ListView.builder(
-                  padding: const EdgeInsets.only(top: 8, bottom: 88),
+                  padding: const EdgeInsets.only(top: 4, bottom: 88),
                   itemCount: _months.length,
                   itemBuilder: (context, index) {
                     final entry = _months[index];
-                    return _buildMonthTile(
-                      entry.month,
-                      entry.isClosed,
-                      entry.totalXaf,
-                      entry.projectCount,
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: _buildMonthTile(entry),
                     );
                   },
                 ),
@@ -215,12 +210,27 @@ class _ArchivePageState extends State<ArchivePage> {
   }
 
   Widget _buildMonthTile(
-      String month, bool isClosed, double totalXaf, int projectCount) {
+      ({String month, bool allPaid, bool isArchived, double totalXaf, int projectCount, int paidCount}) entry) {
+    final month = entry.month;
+    final totalXaf = entry.totalXaf;
     final totalUsd =
         (_xafToUsdRate != null && totalXaf > 0) ? totalXaf * _xafToUsdRate! : null;
 
+    final String statusLabel;
+    final bool isGreen;
+    if (entry.isArchived) {
+      statusLabel = 'Archived · ${entry.projectCount} project${entry.projectCount == 1 ? '' : 's'}';
+      isGreen = true;
+    } else if (entry.allPaid) {
+      statusLabel = '${entry.projectCount}/${entry.projectCount} paid';
+      isGreen = false;
+    } else {
+      statusLabel = '${entry.paidCount}/${entry.projectCount} paid';
+      isGreen = false;
+    }
+
     final card = GestureDetector(
-      onTap: () => _openMonth(month, isClosed),
+      onTap: () => _openMonth(month),
       child: Card(
         margin: const EdgeInsets.symmetric(horizontal: 16),
         child: Padding(
@@ -228,7 +238,6 @@ class _ArchivePageState extends State<ArchivePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Top row: month name + chips
               Row(
                 children: [
                   Expanded(
@@ -242,19 +251,11 @@ class _ArchivePageState extends State<ArchivePage> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    '$projectCount project${projectCount == 1 ? '' : 's'}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: isClosed
+                      color: isGreen
                           ? Colors.green.shade700
                           : Theme.of(context).colorScheme.onSurface.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(10),
@@ -262,19 +263,19 @@ class _ArchivePageState extends State<ArchivePage> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (isClosed)
+                        if (isGreen)
                           const Padding(
                             padding: EdgeInsets.only(right: 3),
                             child:
                                 Icon(Icons.check, size: 10, color: Colors.white),
                           ),
                         Text(
-                          isClosed ? 'Paid' : 'Pending',
+                          statusLabel,
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
                             color:
-                                isClosed ? Colors.white : Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                isGreen ? Colors.white : Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                           ),
                         ),
                       ],

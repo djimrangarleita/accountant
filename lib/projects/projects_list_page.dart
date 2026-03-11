@@ -26,10 +26,11 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
   bool _isLoading = true;
   List<Project> _projects = const [];
   double? _totalUsd;
-  double? _totalXaf;
+  double? _totalSecond;
   bool _isLoadingTotals = false;
   String? _totalsError;
-  Map<int, double> _projectXafAmounts = const {};
+  Map<int, double> _projectSecondAmounts = const {};
+  String _secondCurrency = 'XAF';
 
   ExchangeRateClient? _exchangeClient;
 
@@ -55,18 +56,20 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
 
   Future<void> _load() async {
     final db = IncomeDatabase.instance;
+    final secondCurrency = await db.getSecondCurrency();
     var projects = await db.getProjects();
 
-    await _autoResetIfNewMonth(db, projects);
+    await _autoResetIfNewMonth(db, projects, secondCurrency);
     projects = await db.getProjects();
 
     setState(() {
+      _secondCurrency = secondCurrency;
       _projects = projects;
       _isLoading = false;
       _totalUsd = null;
-      _totalXaf = null;
+      _totalSecond = null;
       _totalsError = null;
-      _projectXafAmounts = const {};
+      _projectSecondAmounts = const {};
     });
     if (projects.isNotEmpty) {
       await _computeAggregates(projects);
@@ -74,7 +77,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
   }
 
   Future<void> _autoResetIfNewMonth(
-      IncomeDatabase db, List<Project> projects) async {
+      IncomeDatabase db, List<Project> projects, String secondCurrency) async {
     final lastActive = await db.getLastActiveMonth();
 
     if (lastActive == null) {
@@ -115,6 +118,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
         totalIncomeXaf: 0.0,
         closedAt: now,
         isClosed: false,
+        secondCurrency: secondCurrency,
       ));
     }
 
@@ -134,9 +138,10 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
     final db = IncomeDatabase.instance;
 
     double sumUsd = 0.0;
-    double sumXaf = 0.0;
-    final projectXafAmounts = <int, double>{};
+    double sumSecond = 0.0;
+    final projectSecondAmounts = <int, double>{};
     String? error;
+    final second = _secondCurrency;
 
     if (_exchangeClient != null) {
       try {
@@ -166,27 +171,27 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
             }
           }
 
-          double xafRate;
-          if (base == 'XAF') {
-            xafRate = 1.0;
+          double secondRate;
+          if (base == second) {
+            secondRate = 1.0;
           } else {
-            final cached = await db.getCachedFxRate(from: base, to: 'XAF');
+            final cached = await db.getCachedFxRate(from: base, to: second);
             final now = DateTime.now().toUtc();
             if (cached != null && now.difference(cached.asOf).inMinutes < 60) {
-              xafRate = applyAdj(cached.rate);
+              secondRate = applyAdj(cached.rate);
             } else {
               final quote =
-                  await _exchangeClient!.getRate(from: base, to: 'XAF');
+                  await _exchangeClient!.getRate(from: base, to: second);
               await db.setCachedFxRate(
-                  from: base, to: 'XAF', rate: quote.rate, asOf: quote.asOf);
-              xafRate = applyAdj(quote.rate);
+                  from: base, to: second, rate: quote.rate, asOf: quote.asOf);
+              secondRate = applyAdj(quote.rate);
             }
           }
 
-          final xafAmount = income * xafRate;
+          final secondAmount = income * secondRate;
           sumUsd += income * usdRate;
-          sumXaf += xafAmount;
-          projectXafAmounts[id] = xafAmount;
+          sumSecond += secondAmount;
+          projectSecondAmounts[id] = secondAmount;
         }
       } on Object catch (e) {
         error = e.toString();
@@ -198,8 +203,8 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
     if (!mounted) return;
     setState(() {
       _totalUsd = error == null ? sumUsd : null;
-      _totalXaf = error == null ? sumXaf : null;
-      _projectXafAmounts = projectXafAmounts;
+      _totalSecond = error == null ? sumSecond : null;
+      _projectSecondAmounts = projectSecondAmounts;
       _totalsError = error;
       _isLoadingTotals = false;
     });
@@ -208,9 +213,9 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
   List<Project> get _sortedProjects {
     final list = List<Project>.from(_projects);
     list.sort((a, b) {
-      final xafA = (a.id != null ? _projectXafAmounts[a.id] : null) ?? 0.0;
-      final xafB = (b.id != null ? _projectXafAmounts[b.id] : null) ?? 0.0;
-      return xafB.compareTo(xafA);
+      final secA = (a.id != null ? _projectSecondAmounts[a.id] : null) ?? 0.0;
+      final secB = (b.id != null ? _projectSecondAmounts[b.id] : null) ?? 0.0;
+      return secB.compareTo(secA);
     });
     return list;
   }
@@ -306,6 +311,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(builder: (_) => const SettingsPage()),
     );
+    await _load();
   }
 
   Future<void> _openArchive() async {
@@ -388,7 +394,9 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
             ),
             const SizedBox(height: 4),
             Text(
-              _totalXaf != null ? _formatMoney(_totalXaf!, 'XAF') : '—',
+              _totalSecond != null
+                  ? _formatMoney(_totalSecond!, _secondCurrency)
+                  : '—',
               style: TextStyle(
                 color: cardFg.withOpacity(0.6),
                 fontSize: 16,
@@ -403,7 +411,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
 
   Widget _buildProjectCard(Project project) {
     final xafAmount =
-        project.id != null ? _projectXafAmounts[project.id] : null;
+        project.id != null ? _projectSecondAmounts[project.id] : null;
     final rank = _sortedProjects.indexOf(project) + 1;
 
     return Dismissible(
@@ -496,7 +504,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
                           else
                             Text(
                               xafAmount != null
-                                  ? _formatMoney(xafAmount, 'XAF')
+                                  ? _formatMoney(xafAmount, _secondCurrency)
                                   : '—',
                               style: TextStyle(
                                 fontSize: 14,

@@ -22,8 +22,9 @@ class _ArchivePageState extends State<ArchivePage> {
       _months = const [];
 
   ExchangeRateClient? _exchangeClient;
-  double? _xafToUsdRate;
+  double? _secondToUsdRate;
   bool _isLoadingRate = false;
+  String _secondCurrency = 'XAF';
 
   @override
   void initState() {
@@ -41,33 +42,42 @@ class _ArchivePageState extends State<ArchivePage> {
   }
 
   Future<void> _load() async {
-    final months = await IncomeDatabase.instance.getArchivedMonths();
+    final db = IncomeDatabase.instance;
+    final secondCurrency = await db.getSecondCurrency();
+    final months = await db.getArchivedMonths();
     if (!mounted) return;
     setState(() {
+      _secondCurrency = secondCurrency;
       _months = months;
       _isLoading = false;
     });
-    _fetchXafToUsdRate();
+    _fetchSecondToUsdRate();
   }
 
-  Future<void> _fetchXafToUsdRate() async {
+  Future<void> _fetchSecondToUsdRate() async {
     if (_exchangeClient == null) return;
+    final second = _secondCurrency;
+    if (second == 'USD') {
+      setState(() => _secondToUsdRate = 1.0);
+      return;
+    }
     setState(() => _isLoadingRate = true);
     try {
       final db = IncomeDatabase.instance;
-      final cached = await db.getCachedFxRate(from: 'XAF', to: 'USD');
+      final cached = await db.getCachedFxRate(from: second, to: 'USD');
       final now = DateTime.now().toUtc();
       double rate;
       if (cached != null && now.difference(cached.asOf).inMinutes < 60) {
         rate = cached.rate;
       } else {
-        final quote = await _exchangeClient!.getRate(from: 'XAF', to: 'USD');
+        final quote =
+            await _exchangeClient!.getRate(from: second, to: 'USD');
         await db.setCachedFxRate(
-            from: 'XAF', to: 'USD', rate: quote.rate, asOf: quote.asOf);
+            from: second, to: 'USD', rate: quote.rate, asOf: quote.asOf);
         rate = quote.rate;
       }
       if (!mounted) return;
-      setState(() => _xafToUsdRate = rate);
+      setState(() => _secondToUsdRate = rate);
     } on Object catch (_) {
       // Rate unavailable — tiles will show '—' for USD
     } finally {
@@ -212,9 +222,9 @@ class _ArchivePageState extends State<ArchivePage> {
   Widget _buildMonthTile(
       ({String month, bool allPaid, bool isArchived, double totalXaf, int projectCount, int paidCount}) entry) {
     final month = entry.month;
-    final totalXaf = entry.totalXaf;
+    final totalSecond = entry.totalXaf;
     final totalUsd =
-        (_xafToUsdRate != null && totalXaf > 0) ? totalXaf * _xafToUsdRate! : null;
+        (_secondToUsdRate != null && totalSecond > 0) ? totalSecond * _secondToUsdRate! : null;
 
     final String statusLabel;
     final bool isGreen;
@@ -306,7 +316,9 @@ class _ArchivePageState extends State<ArchivePage> {
                           ),
                         const SizedBox(height: 2),
                         Text(
-                          totalXaf > 0 ? _formatMoney(totalXaf, 'XAF') : '—',
+                          totalSecond > 0
+                              ? _formatMoney(totalSecond, _secondCurrency)
+                              : '—',
                           style: TextStyle(
                             fontSize: 14,
                             color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),

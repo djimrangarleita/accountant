@@ -24,6 +24,7 @@ class IncomeDatabase {
   static const String fxUsdXafTimestampKey = 'fx_usd_xaf_timestamp';
   static const String lastActiveMonthKey = 'last_active_month';
   static const String themeModeKey = 'theme_mode';
+  static const String secondCurrencyKey = 'second_currency';
 
   static const String _projectsTable = 'projects';
   static const String _fxCacheTable = 'fx_cache';
@@ -45,7 +46,7 @@ class IncomeDatabase {
 
     return openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: (db, version) async {
         await _createIncomeEntriesTable(db);
         await _createConfigTable(db);
@@ -88,6 +89,11 @@ class IncomeDatabase {
         if (oldVersion < 10) {
           await _createTimeEntriesTable(db);
           await _migrateExistingHoursToTimeEntries(db);
+        }
+        if (oldVersion < 11) {
+          await db.execute(
+            "ALTER TABLE $_snapshotsTable ADD COLUMN secondCurrency TEXT NOT NULL DEFAULT 'XAF'",
+          );
         }
       },
     );
@@ -154,7 +160,8 @@ class IncomeDatabase {
         baseToXafRate REAL NOT NULL DEFAULT 0,
         totalIncomeXaf REAL NOT NULL DEFAULT 0,
         closedAt TEXT NOT NULL,
-        isClosed INTEGER NOT NULL DEFAULT 1
+        isClosed INTEGER NOT NULL DEFAULT 1,
+        secondCurrency TEXT NOT NULL DEFAULT 'XAF'
       )
     ''');
   }
@@ -175,7 +182,8 @@ class IncomeDatabase {
         baseToXafRate REAL NOT NULL DEFAULT 0,
         totalIncomeXaf REAL NOT NULL DEFAULT 0,
         closedAt TEXT NOT NULL,
-        isClosed INTEGER NOT NULL DEFAULT 1
+        isClosed INTEGER NOT NULL DEFAULT 1,
+        secondCurrency TEXT NOT NULL DEFAULT 'XAF'
       )
     ''');
     await db.execute(
@@ -330,6 +338,12 @@ class IncomeDatabase {
 
   Future<String> getThemeMode() async =>
       (await _getConfigString(themeModeKey)) ?? 'system';
+
+  Future<void> setSecondCurrency(String code) =>
+      _setConfigString(secondCurrencyKey, code.toUpperCase());
+
+  Future<String> getSecondCurrency() async =>
+      (await _getConfigString(secondCurrencyKey)) ?? 'XAF';
 
   Future<void> setCachedUsdToXafRate(double rate, DateTime asOf) async {
     await _setConfigDouble(fxUsdXafRateKey, rate);

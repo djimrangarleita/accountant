@@ -28,8 +28,9 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
   bool _isMonthArchived = false;
 
   ExchangeRateClient? _exchangeClient;
-  double? _xafToUsdRate;
+  double? _secondToUsdRate;
   bool _isLoadingRate = false;
+  String _secondCurrency = 'XAF';
 
   bool get _allPaid =>
       _snapshots.isNotEmpty && _snapshots.every((s) => s.isClosed);
@@ -53,35 +54,43 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
 
   Future<void> _load() async {
     final db = IncomeDatabase.instance;
+    final secondCurrency = await db.getSecondCurrency();
     final snapshots = await db.getSnapshotsForMonth(widget.month);
     final archived = await db.isMonthArchived(widget.month);
     if (!mounted) return;
     setState(() {
+      _secondCurrency = secondCurrency;
       _snapshots = snapshots;
       _isMonthArchived = archived;
       _isLoading = false;
     });
-    _fetchXafToUsdRate();
+    _fetchSecondToUsdRate();
   }
 
-  Future<void> _fetchXafToUsdRate() async {
+  Future<void> _fetchSecondToUsdRate() async {
     if (_exchangeClient == null) return;
+    final second = _secondCurrency;
+    if (second == 'USD') {
+      setState(() => _secondToUsdRate = 1.0);
+      return;
+    }
     setState(() => _isLoadingRate = true);
     try {
       final db = IncomeDatabase.instance;
-      final cached = await db.getCachedFxRate(from: 'XAF', to: 'USD');
+      final cached = await db.getCachedFxRate(from: second, to: 'USD');
       final now = DateTime.now().toUtc();
       double rate;
       if (cached != null && now.difference(cached.asOf).inMinutes < 60) {
         rate = cached.rate;
       } else {
-        final quote = await _exchangeClient!.getRate(from: 'XAF', to: 'USD');
+        final quote =
+            await _exchangeClient!.getRate(from: second, to: 'USD');
         await db.setCachedFxRate(
-            from: 'XAF', to: 'USD', rate: quote.rate, asOf: quote.asOf);
+            from: second, to: 'USD', rate: quote.rate, asOf: quote.asOf);
         rate = quote.rate;
       }
       if (!mounted) return;
-      setState(() => _xafToUsdRate = rate);
+      setState(() => _secondToUsdRate = rate);
     } on Object catch (_) {
       // Rate unavailable — show '—' for USD
     } finally {
@@ -153,7 +162,10 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => _FinalExchangeRateSheet(snapshot: snapshot),
+      builder: (_) => _FinalExchangeRateSheet(
+        snapshot: snapshot,
+        secondCurrency: _secondCurrency,
+      ),
     );
     if (result == null || !mounted) return;
 
@@ -188,12 +200,12 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
   // ── Widgets ──
 
   Widget _buildSummaryCard() {
-    double totalXaf = 0;
+    double totalSecond = 0;
     for (final s in _snapshots) {
-      totalXaf += s.totalIncomeXaf;
+      totalSecond += s.totalIncomeXaf;
     }
-    final totalUsd = (_xafToUsdRate != null && totalXaf > 0)
-        ? totalXaf * _xafToUsdRate!
+    final totalUsd = (_secondToUsdRate != null && totalSecond > 0)
+        ? totalSecond * _secondToUsdRate!
         : null;
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -286,7 +298,9 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
             ),
           const SizedBox(height: 4),
           Text(
-            totalXaf > 0 ? _formatMoney(totalXaf, 'XAF') : '—',
+            totalSecond > 0
+                ? _formatMoney(totalSecond, _secondCurrency)
+                : '—',
             style: TextStyle(
               color: cardFg.withOpacity(0.6),
               fontSize: 16,
@@ -453,7 +467,9 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                         const SizedBox(height: 2),
                         Text(
                           snapshot.totalIncomeXaf > 0
-                              ? _formatMoney(snapshot.totalIncomeXaf, 'XAF')
+                              ? _formatMoney(
+                                  snapshot.totalIncomeXaf,
+                                  snapshot.secondCurrency)
                               : '—',
                           style: TextStyle(
                             fontSize: 14,
@@ -654,9 +670,13 @@ class _PayResult {
 }
 
 class _FinalExchangeRateSheet extends StatefulWidget {
-  const _FinalExchangeRateSheet({required this.snapshot});
+  const _FinalExchangeRateSheet({
+    required this.snapshot,
+    required this.secondCurrency,
+  });
 
   final MonthlySnapshot snapshot;
+  final String secondCurrency;
 
   @override
   State<_FinalExchangeRateSheet> createState() =>
@@ -741,7 +761,7 @@ class _FinalExchangeRateSheetState extends State<_FinalExchangeRateSheet> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Enter the final exchange rate to calculate the revenue in XAF.',
+            'Enter the final exchange rate to calculate the revenue in ${widget.secondCurrency}.',
             style: TextStyle(
               fontSize: 13,
               color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
@@ -789,7 +809,7 @@ class _FinalExchangeRateSheetState extends State<_FinalExchangeRateSheet> {
                 const TextInputType.numberWithOptions(decimal: true),
             autofocus: true,
             decoration: InputDecoration(
-              labelText: '1 $base = ? XAF',
+              labelText: '1 $base = ? ${widget.secondCurrency}',
               hintText: 'Final exchange rate',
             ),
             onChanged: (_) => setState(() {}),
@@ -807,7 +827,7 @@ class _FinalExchangeRateSheetState extends State<_FinalExchangeRateSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Revenue in XAF',
+                  'Revenue in ${widget.secondCurrency}',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
@@ -819,7 +839,9 @@ class _FinalExchangeRateSheetState extends State<_FinalExchangeRateSheet> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  _rate > 0 ? _formatMoney(_totalXaf, 'XAF') : '—',
+                  _rate > 0
+                      ? _formatMoney(_totalXaf, widget.secondCurrency)
+                      : '—',
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,

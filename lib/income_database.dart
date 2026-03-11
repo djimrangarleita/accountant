@@ -572,25 +572,43 @@ class IncomeDatabase {
   Future<
       List<({
         String month,
-        bool isClosed,
+        bool allPaid,
+        bool isArchived,
         double totalXaf,
         int projectCount,
+        int paidCount,
       })>> getArchivedMonths() async {
     final db = await database;
     final maps = await db.rawQuery(
-      'SELECT month, MIN(isClosed) AS isClosed, '
+      'SELECT month, MIN(isClosed) AS allClosed, '
       'SUM(totalIncomeXaf) AS totalXaf, '
-      'COUNT(*) AS projectCount '
+      'COUNT(*) AS projectCount, '
+      'SUM(CASE WHEN isClosed = 1 THEN 1 ELSE 0 END) AS paidCount '
       'FROM $_snapshotsTable GROUP BY month ORDER BY month DESC',
     );
-    return maps.map((m) {
-      return (
-        month: m['month'] as String,
-        isClosed: (m['isClosed'] as int?) != 0,
+    final results = <({
+      String month,
+      bool allPaid,
+      bool isArchived,
+      double totalXaf,
+      int projectCount,
+      int paidCount,
+    })>[];
+    for (final m in maps) {
+      final month = m['month'] as String;
+      final total = (m['projectCount'] as int?) ?? 0;
+      final paid = (m['paidCount'] as int?) ?? 0;
+      final archived = await isMonthArchived(month);
+      results.add((
+        month: month,
+        allPaid: total > 0 && paid == total,
+        isArchived: archived,
         totalXaf: (m['totalXaf'] as num?)?.toDouble() ?? 0.0,
-        projectCount: (m['projectCount'] as int?) ?? 0,
-      );
-    }).toList();
+        projectCount: total,
+        paidCount: paid,
+      ));
+    }
+    return results;
   }
 
   Future<int> insertSnapshot(MonthlySnapshot snapshot) async {
@@ -629,18 +647,47 @@ class IncomeDatabase {
     );
   }
 
-  /// Marks all pending snapshots for [month] as closed (frozen).
-  Future<void> closeMonth(String month) async {
+  /// Marks a single snapshot as paid with its final exchange rate.
+  Future<void> closeSnapshot({
+    required int snapshotId,
+    required double baseToXafRate,
+    required double totalIncomeXaf,
+  }) async {
     final db = await database;
     await db.update(
       _snapshotsTable,
       {
         'isClosed': 1,
+        'baseToXafRate': baseToXafRate,
+        'totalIncomeXaf': totalIncomeXaf,
         'closedAt': DateTime.now().toUtc().toIso8601String(),
       },
-      where: 'month = ? AND isClosed = 0',
-      whereArgs: [month],
+      where: 'id = ?',
+      whereArgs: [snapshotId],
     );
+  }
+
+  Future<void> setMonthArchived(String month) =>
+      _setConfigString('month_archived_$month', '1');
+
+  Future<bool> isMonthArchived(String month) async {
+    final val = await _getConfigString('month_archived_$month');
+    return val == '1';
+  }
+
+  /// Returns true if every snapshot for [month] is closed.
+  Future<bool> areAllSnapshotsClosedForMonth(String month) async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS total, '
+      'SUM(CASE WHEN isClosed = 1 THEN 1 ELSE 0 END) AS paid '
+      'FROM $_snapshotsTable WHERE month = ?',
+      [month],
+    );
+    if (result.isEmpty) return false;
+    final total = (result.first['total'] as int?) ?? 0;
+    final paid = (result.first['paid'] as int?) ?? 0;
+    return total > 0 && paid == total;
   }
 
   /// Atomically snapshots all [projects] for [month] as pending (isClosed = 0)

@@ -14,11 +14,9 @@ class ArchiveMonthDetailPage extends StatefulWidget {
   const ArchiveMonthDetailPage({
     super.key,
     required this.month,
-    required this.isClosed,
   });
 
   final String month;
-  final bool isClosed;
 
   @override
   State<ArchiveMonthDetailPage> createState() => _ArchiveMonthDetailPageState();
@@ -26,18 +24,21 @@ class ArchiveMonthDetailPage extends StatefulWidget {
 
 class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
   bool _isLoading = true;
-  bool _isClosed = false;
-  bool _isClosing = false;
   List<MonthlySnapshot> _snapshots = const [];
+  bool _isMonthArchived = false;
 
   ExchangeRateClient? _exchangeClient;
   double? _xafToUsdRate;
   bool _isLoadingRate = false;
 
+  bool get _allPaid =>
+      _snapshots.isNotEmpty && _snapshots.every((s) => s.isClosed);
+
+  int get _paidCount => _snapshots.where((s) => s.isClosed).length;
+
   @override
   void initState() {
     super.initState();
-    _isClosed = widget.isClosed;
     _initExchangeClient();
     _load();
   }
@@ -51,15 +52,14 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
   }
 
   Future<void> _load() async {
-    final snapshots =
-        await IncomeDatabase.instance.getSnapshotsForMonth(widget.month);
+    final db = IncomeDatabase.instance;
+    final snapshots = await db.getSnapshotsForMonth(widget.month);
+    final archived = await db.isMonthArchived(widget.month);
     if (!mounted) return;
     setState(() {
       _snapshots = snapshots;
+      _isMonthArchived = archived;
       _isLoading = false;
-      if (snapshots.isNotEmpty) {
-        _isClosed = snapshots.first.isClosed;
-      }
     });
     _fetchXafToUsdRate();
   }
@@ -89,11 +89,6 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
     }
   }
 
-  String get _currentMonth {
-    final now = DateTime.now();
-    return '${now.year}-${now.month.toString().padLeft(2, '0')}';
-  }
-
   String get _monthLabel {
     final parts = widget.month.split('-');
     if (parts.length != 2) return widget.month;
@@ -102,8 +97,6 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
     if (year == null || m == null || m < 1 || m > 12) return widget.month;
     return DateFormat.yMMMM().format(DateTime(year, m));
   }
-
-  bool get _canClose => !_isClosed && widget.month.compareTo(_currentMonth) < 0;
 
   String _formatMoney(double amount, String currency) {
     final code = currency.toUpperCase();
@@ -128,37 +121,51 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
     return '${h}h ${m}m';
   }
 
-  Future<void> _approveAndPay() async {
-    final confirmed = await showDialog<bool>(
+  Future<void> _markSnapshotAsPaid(MonthlySnapshot snapshot) async {
+    final id = snapshot.id;
+    if (id == null) return;
+
+    final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Approve & Pay'),
-        content: Text(
-          'Mark $_monthLabel as approved and paid?\n\n'
-          'This action cannot be undone.',
+        title: const Text('Archive project'),
+        content: const Text(
+          'Once archived, this project entry becomes immutable and can no longer be edited.\n\n'
+          'Do you want to continue?',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Cancel'),
           ),
-          OutlinedButton(
+          FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Approve & Pay'),
+            child: const Text('Continue'),
           ),
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (proceed != true || !mounted) return;
 
-    setState(() => _isClosing = true);
+    final result = await showModalBottomSheet<_PayResult>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => _FinalExchangeRateSheet(snapshot: snapshot),
+    );
+    if (result == null || !mounted) return;
 
     try {
-      await IncomeDatabase.instance.closeMonth(widget.month);
+      await IncomeDatabase.instance.closeSnapshot(
+        snapshotId: id,
+        baseToXafRate: result.rate,
+        totalIncomeXaf: result.totalXaf,
+      );
       if (!mounted) return;
-      setState(() => _isClosed = true);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$_monthLabel approved & paid')),
+        SnackBar(content: Text('"${snapshot.name}" marked as paid')),
       );
       await _load();
     } on Object catch (e) {
@@ -166,8 +173,6 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed: $e')),
       );
-    } finally {
-      if (mounted) setState(() => _isClosing = false);
     }
   }
 
@@ -222,7 +227,7 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                 ),
               ),
               const SizedBox(width: 8),
-              if (_isClosed)
+              if (_isMonthArchived)
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -230,14 +235,14 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                     color: Colors.green.shade600,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.check, size: 10, color: Colors.white),
-                      SizedBox(width: 3),
+                      const Icon(Icons.check, size: 10, color: Colors.white),
+                      const SizedBox(width: 3),
                       Text(
-                        'PAID',
-                        style: TextStyle(
+                        'ARCHIVED · ${_snapshots.length} project${_snapshots.length == 1 ? '' : 's'}',
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -256,7 +261,7 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    '${_snapshots.length} project${_snapshots.length == 1 ? '' : 's'}',
+                    '$_paidCount/${_snapshots.length} paid',
                     style: TextStyle(
                       color: cardFg.withOpacity(0.8),
                       fontSize: 11,
@@ -338,10 +343,12 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
   }
 
   Widget _buildSnapshotCard(MonthlySnapshot snapshot) {
+    final isPaid = snapshot.isClosed;
+
     final card = Card(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       child: InkWell(
-        onTap: _isClosed ? null : () => _editEntry(snapshot),
+        onTap: isPaid ? null : () => _editEntry(snapshot),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -362,15 +369,69 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                   ),
                   const SizedBox(width: 8),
                   CurrencyBadge(snapshot.baseCurrency),
-                  if (!_isClosed) ...[
-                    const SizedBox(width: 4),
-                    Icon(Icons.chevron_right,
-                        size: 18,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withOpacity(0.3)),
-                  ],
+                  const SizedBox(width: 6),
+                  if (isPaid)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade700,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check, size: 10, color: Colors.white),
+                          SizedBox(width: 3),
+                          Text(
+                            'Paid',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    GestureDetector(
+                      onTap: () => _markSnapshotAsPaid(snapshot),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.payment,
+                                size: 10,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.6)),
+                            const SizedBox(width: 3),
+                            Text(
+                              'Mark Paid',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.6),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -445,6 +506,15 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                       ],
                     ],
                   ),
+                  if (!isPaid) ...[
+                    const SizedBox(width: 4),
+                    Icon(Icons.chevron_right,
+                        size: 18,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.3)),
+                  ],
                 ],
               ),
             ],
@@ -453,7 +523,7 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
       ),
     );
 
-    if (_isClosed) return card;
+    if (isPaid) return card;
 
     return Dismissible(
       key: ValueKey(snapshot.id),
@@ -503,56 +573,37 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
     );
   }
 
+  Future<void> _archiveMonth() async {
+    await IncomeDatabase.instance.setMonthArchived(widget.month);
+    if (!mounted) return;
+    setState(() => _isMonthArchived = true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$_monthLabel archived')),
+    );
+  }
+
   Widget _buildStatusSection() {
-    if (_isClosed) {
-      final closedAt = _snapshots.isNotEmpty ? _snapshots.first.closedAt : null;
-      final dateLabel = closedAt != null
-          ? DateFormat.yMMMd().add_jm().format(closedAt.toLocal())
-          : '';
+    if (_isMonthArchived) return const SizedBox.shrink();
+
+    if (_allPaid) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.check_circle, size: 14, color: Colors.green.shade600),
-            const SizedBox(width: 6),
-            Text(
-              'Paid${dateLabel.isNotEmpty ? ' on $dateLabel' : ''}',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.green.shade600,
-              ),
+        child: SizedBox(
+          width: double.infinity,
+          child: OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.onSurface,
+              side: BorderSide(color: Theme.of(context).colorScheme.onSurface),
+              padding: const EdgeInsets.symmetric(vertical: 14),
             ),
-          ],
+            onPressed: _archiveMonth,
+            child: Text('Archive $_monthLabel'),
+          ),
         ),
       );
     }
 
-    if (!_canClose) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: SizedBox(
-        width: double.infinity,
-        child: OutlinedButton(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Theme.of(context).colorScheme.onSurface,
-            side: BorderSide(color: Theme.of(context).colorScheme.onSurface),
-            padding: const EdgeInsets.symmetric(vertical: 14),
-          ),
-          onPressed: _isClosing ? null : _approveAndPay,
-          child: _isClosing
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                  ),
-                )
-              : Text('Approve & Pay $_monthLabel'),
-        ),
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   @override
@@ -564,7 +615,7 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
         actions: [
-          if (!_isClosed)
+          if (!_allPaid && !_isMonthArchived)
             IconButton(
               icon: const Icon(Icons.add),
               onPressed: _addEntry,
@@ -592,6 +643,203 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+class _PayResult {
+  const _PayResult({required this.rate, required this.totalXaf});
+  final double rate;
+  final double totalXaf;
+}
+
+class _FinalExchangeRateSheet extends StatefulWidget {
+  const _FinalExchangeRateSheet({required this.snapshot});
+
+  final MonthlySnapshot snapshot;
+
+  @override
+  State<_FinalExchangeRateSheet> createState() =>
+      _FinalExchangeRateSheetState();
+}
+
+class _FinalExchangeRateSheetState extends State<_FinalExchangeRateSheet> {
+  late final TextEditingController _rateController;
+
+  @override
+  void initState() {
+    super.initState();
+    _rateController = TextEditingController(
+      text: widget.snapshot.baseToXafRate > 0
+          ? widget.snapshot.baseToXafRate.toString()
+          : '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _rateController.dispose();
+    super.dispose();
+  }
+
+  double get _rate =>
+      double.tryParse(_rateController.text.trim().replaceAll(',', '')) ?? 0;
+
+  double get _totalXaf => widget.snapshot.totalIncomeBase * _rate;
+
+  String _formatMoney(double amount, String currency) {
+    final code = currency.toUpperCase();
+    if (code == 'USD') {
+      return NumberFormat.currency(
+              locale: 'en_US', symbol: r'$', decimalDigits: 2)
+          .format(amount);
+    }
+    if (code == 'XAF') {
+      final fmt = NumberFormat.decimalPattern('fr_FR');
+      return '${fmt.format(amount.round())} XAF';
+    }
+    final fmt = NumberFormat.decimalPattern('en_US');
+    return '${fmt.format(double.parse(amount.toStringAsFixed(2)))} $code';
+  }
+
+  void _confirm() {
+    if (_rate <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid exchange rate')),
+      );
+      return;
+    }
+    Navigator.of(context).pop(_PayResult(rate: _rate, totalXaf: _totalXaf));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final snap = widget.snapshot;
+    final base = snap.baseCurrency.toUpperCase();
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(24, 16, 24, 16 + bottomInset),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Mark "${snap.name}" as Paid',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Enter the final exchange rate to calculate the revenue in XAF.',
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color:
+                  Theme.of(context).colorScheme.onSurface.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Income in $base',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.5),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _formatMoney(snap.totalIncomeBase, base),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _rateController,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: '1 $base = ? XAF',
+              hintText: 'Final exchange rate',
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color:
+                  Theme.of(context).colorScheme.onSurface.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Revenue in XAF',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.5),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _rate > 0 ? _formatMoney(_totalXaf, 'XAF') : '—',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _rate > 0 ? _confirm : null,
+              child: const Text('Confirm & Mark as Paid'),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 }

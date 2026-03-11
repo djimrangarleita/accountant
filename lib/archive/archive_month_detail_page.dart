@@ -35,6 +35,10 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
   double? _liveTotalSecond;
   Map<int, double> _livePerSnapshotSecond = const {};
 
+  double? _archivedTotalUsd;
+  double? _archivedTotalSecond;
+  String? _archivedSecondCurrency;
+
   bool get _allPaid =>
       _snapshots.isNotEmpty && _snapshots.every((s) => s.isClosed);
 
@@ -60,11 +64,23 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
     final secondCurrency = await db.getSecondCurrency();
     final snapshots = await db.getSnapshotsForMonth(widget.month);
     final archived = await db.isMonthArchived(widget.month);
+    double? archivedUsd;
+    double? archivedSecond;
+    String? archivedCurrency;
+    if (archived) {
+      final stored = await db.getArchivedMonthTotals(widget.month);
+      archivedUsd = stored?.totalUsd;
+      archivedSecond = stored?.totalSecond;
+      archivedCurrency = stored?.secondCurrency;
+    }
     if (!mounted) return;
     setState(() {
       _secondCurrency = secondCurrency;
       _snapshots = snapshots;
       _isMonthArchived = archived;
+      _archivedTotalUsd = archivedUsd;
+      _archivedTotalSecond = archivedSecond;
+      _archivedSecondCurrency = archivedCurrency;
       _isLoading = false;
     });
 
@@ -212,29 +228,18 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
 
   // ── Widgets ──
 
-  /// For the summary label: if archived, use the frozen currency from the
-  /// snapshots; otherwise use the current global setting.
-  String get _summarySecondCurrency {
-    if (_isMonthArchived) {
-      final paid = _snapshots.where((s) => s.isClosed);
-      if (paid.isNotEmpty) return paid.first.secondCurrency;
-    }
-    return _secondCurrency;
-  }
+  /// For the summary label: if archived, use the stored currency; otherwise
+  /// use the current global setting.
+  String get _summarySecondCurrency =>
+      _archivedSecondCurrency ?? _secondCurrency;
 
   Widget _buildSummaryCard() {
     final double displayUsd;
     final double displaySecond;
 
     if (_isMonthArchived) {
-      double storedUsd = 0;
-      double storedSecond = 0;
-      for (final s in _snapshots) {
-        storedUsd += s.totalIncomeUsd;
-        storedSecond += s.totalIncomeXaf;
-      }
-      displayUsd = storedUsd;
-      displaySecond = storedSecond;
+      displayUsd = _archivedTotalUsd ?? 0;
+      displaySecond = _archivedTotalSecond ?? 0;
     } else {
       displayUsd = _liveTotalUsd ?? 0;
       displaySecond = _liveTotalSecond ?? 0;
@@ -689,9 +694,47 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
   }
 
   Future<void> _archiveMonth() async {
-    await IncomeDatabase.instance.setMonthArchived(widget.month);
+    final client = _exchangeClient;
+    if (client == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('FX is disabled. Enable it to archive with mixed currencies.'),
+        ),
+      );
+      return;
+    }
+
+    SnapshotFxResult result;
+    try {
+      result = await computeSnapshotAggregates(
+        snapshots: _snapshots,
+        secondCurrency: _secondCurrency,
+        client: client,
+        db: IncomeDatabase.instance,
+      );
+
+      await IncomeDatabase.instance.setArchivedMonthTotals(
+        month: widget.month,
+        totalUsd: result.totalUsd,
+        totalSecond: result.totalSecond,
+        secondCurrency: _secondCurrency,
+      );
+      await IncomeDatabase.instance.setMonthArchived(widget.month);
+    } on Object catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to archive: $e')),
+      );
+      return;
+    }
+
     if (!mounted) return;
-    setState(() => _isMonthArchived = true);
+    setState(() {
+      _isMonthArchived = true;
+      _archivedTotalUsd = result.totalUsd;
+      _archivedTotalSecond = result.totalSecond;
+      _archivedSecondCurrency = _secondCurrency;
+    });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$_monthLabel archived')),
     );
@@ -730,7 +773,7 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
-      floatingActionButton: (!_allPaid && !_isMonthArchived && !_isLoading)
+      floatingActionButton: (!_isMonthArchived && !_isLoading)
           ? FloatingActionButton(
               onPressed: _addEntry,
               child: const Icon(Icons.add),

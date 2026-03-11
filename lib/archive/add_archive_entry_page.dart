@@ -394,7 +394,7 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            _usdRate > 0 ? _formatMoney(_totalIncomeUsd, 'USD') : '—',
+            _formatMoney(_totalIncomeBase, _currency),
             style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w700,

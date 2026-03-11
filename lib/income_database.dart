@@ -631,13 +631,27 @@ class IncomeDatabase {
       final total = (m['projectCount'] as int?) ?? 0;
       final paid = (m['paidCount'] as int?) ?? 0;
       final archived = await isMonthArchived(month);
+
+      double totalUsd = (m['totalUsd'] as num?)?.toDouble() ?? 0.0;
+      double totalSecond = (m['totalSecond'] as num?)?.toDouble() ?? 0.0;
+      String secondCurrency = m['secondCurrency'] as String? ?? 'XAF';
+
+      if (archived) {
+        final stored = await getArchivedMonthTotals(month);
+        if (stored != null) {
+          totalUsd = stored.totalUsd;
+          totalSecond = stored.totalSecond;
+          secondCurrency = stored.secondCurrency;
+        }
+      }
+
       results.add((
         month: month,
         allPaid: total > 0 && paid == total,
         isArchived: archived,
-        totalUsd: (m['totalUsd'] as num?)?.toDouble() ?? 0.0,
-        totalSecond: (m['totalSecond'] as num?)?.toDouble() ?? 0.0,
-        secondCurrency: m['secondCurrency'] as String? ?? 'XAF',
+        totalUsd: totalUsd,
+        totalSecond: totalSecond,
+        secondCurrency: secondCurrency,
         projectCount: total,
         paidCount: paid,
       ));
@@ -712,13 +726,47 @@ class IncomeDatabase {
   Future<void> setMonthArchived(String month) =>
       _setConfigString('month_archived_$month', '1');
 
+  /// Stores the immutable totals for an archived month. Call before
+  /// [setMonthArchived]. These values are displayed as-is; no conversion.
+  Future<void> setArchivedMonthTotals({
+    required String month,
+    required double totalUsd,
+    required double totalSecond,
+    required String secondCurrency,
+  }) async {
+    await _setConfigDouble('month_total_usd_$month', totalUsd);
+    await _setConfigDouble('month_total_second_$month', totalSecond);
+    await _setConfigString('month_total_second_currency_$month', secondCurrency);
+  }
+
+  Future<({double totalUsd, double totalSecond, String secondCurrency})?>
+      getArchivedMonthTotals(String month) async {
+    final usd = await _getConfigDouble('month_total_usd_$month');
+    final second = await _getConfigDouble('month_total_second_$month');
+    final currency = await _getConfigString('month_total_second_currency_$month');
+    if (usd == null && second == null && currency == null) return null;
+    return (
+      totalUsd: usd ?? 0,
+      totalSecond: second ?? 0,
+      secondCurrency: currency ?? 'XAF',
+    );
+  }
+
   Future<void> clearMonthArchived(String month) async {
     final db = await database;
-    await db.delete(
-      _configTable,
-      where: '$_configKeyColumn = ?',
-      whereArgs: ['month_archived_$month'],
-    );
+    final keys = [
+      'month_archived_$month',
+      'month_total_usd_$month',
+      'month_total_second_$month',
+      'month_total_second_currency_$month',
+    ];
+    for (final key in keys) {
+      await db.delete(
+        _configTable,
+        where: '$_configKeyColumn = ?',
+        whereArgs: [key],
+      );
+    }
   }
 
   Future<bool> isMonthArchived(String month) async {

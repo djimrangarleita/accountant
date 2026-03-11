@@ -24,6 +24,7 @@ class IncomeDatabase {
   static const String fxUsdXafTimestampKey = 'fx_usd_xaf_timestamp';
   static const String lastActiveMonthKey = 'last_active_month';
   static const String themeModeKey = 'theme_mode';
+  static const String secondCurrencyKey = 'second_currency';
 
   static const String _projectsTable = 'projects';
   static const String _fxCacheTable = 'fx_cache';
@@ -45,7 +46,7 @@ class IncomeDatabase {
 
     return openDatabase(
       path,
-      version: 10,
+      version: 12,
       onCreate: (db, version) async {
         await _createIncomeEntriesTable(db);
         await _createConfigTable(db);
@@ -88,6 +89,19 @@ class IncomeDatabase {
         if (oldVersion < 10) {
           await _createTimeEntriesTable(db);
           await _migrateExistingHoursToTimeEntries(db);
+        }
+        if (oldVersion < 11) {
+          await db.execute(
+            "ALTER TABLE $_snapshotsTable ADD COLUMN secondCurrency TEXT NOT NULL DEFAULT 'XAF'",
+          );
+        }
+        if (oldVersion < 12) {
+          await db.execute(
+            'ALTER TABLE $_snapshotsTable ADD COLUMN baseToUsdRate REAL NOT NULL DEFAULT 0',
+          );
+          await db.execute(
+            'ALTER TABLE $_snapshotsTable ADD COLUMN totalIncomeUsd REAL NOT NULL DEFAULT 0',
+          );
         }
       },
     );
@@ -154,7 +168,10 @@ class IncomeDatabase {
         baseToXafRate REAL NOT NULL DEFAULT 0,
         totalIncomeXaf REAL NOT NULL DEFAULT 0,
         closedAt TEXT NOT NULL,
-        isClosed INTEGER NOT NULL DEFAULT 1
+        isClosed INTEGER NOT NULL DEFAULT 1,
+        secondCurrency TEXT NOT NULL DEFAULT 'XAF',
+        baseToUsdRate REAL NOT NULL DEFAULT 0,
+        totalIncomeUsd REAL NOT NULL DEFAULT 0
       )
     ''');
   }
@@ -175,7 +192,10 @@ class IncomeDatabase {
         baseToXafRate REAL NOT NULL DEFAULT 0,
         totalIncomeXaf REAL NOT NULL DEFAULT 0,
         closedAt TEXT NOT NULL,
-        isClosed INTEGER NOT NULL DEFAULT 1
+        isClosed INTEGER NOT NULL DEFAULT 1,
+        secondCurrency TEXT NOT NULL DEFAULT 'XAF',
+        baseToUsdRate REAL NOT NULL DEFAULT 0,
+        totalIncomeUsd REAL NOT NULL DEFAULT 0
       )
     ''');
     await db.execute(
@@ -330,6 +350,12 @@ class IncomeDatabase {
 
   Future<String> getThemeMode() async =>
       (await _getConfigString(themeModeKey)) ?? 'system';
+
+  Future<void> setSecondCurrency(String code) =>
+      _setConfigString(secondCurrencyKey, code.toUpperCase());
+
+  Future<String> getSecondCurrency() async =>
+      (await _getConfigString(secondCurrencyKey)) ?? 'XAF';
 
   Future<void> setCachedUsdToXafRate(double rate, DateTime asOf) async {
     await _setConfigDouble(fxUsdXafRateKey, rate);
@@ -574,14 +600,18 @@ class IncomeDatabase {
         String month,
         bool allPaid,
         bool isArchived,
-        double totalXaf,
+        double totalUsd,
+        double totalSecond,
+        String secondCurrency,
         int projectCount,
         int paidCount,
       })>> getArchivedMonths() async {
     final db = await database;
     final maps = await db.rawQuery(
       'SELECT month, MIN(isClosed) AS allClosed, '
-      'SUM(totalIncomeXaf) AS totalXaf, '
+      'SUM(totalIncomeUsd) AS totalUsd, '
+      'SUM(totalIncomeXaf) AS totalSecond, '
+      'MAX(secondCurrency) AS secondCurrency, '
       'COUNT(*) AS projectCount, '
       'SUM(CASE WHEN isClosed = 1 THEN 1 ELSE 0 END) AS paidCount '
       'FROM $_snapshotsTable GROUP BY month ORDER BY month DESC',
@@ -590,7 +620,9 @@ class IncomeDatabase {
       String month,
       bool allPaid,
       bool isArchived,
-      double totalXaf,
+      double totalUsd,
+      double totalSecond,
+      String secondCurrency,
       int projectCount,
       int paidCount,
     })>[];
@@ -599,11 +631,27 @@ class IncomeDatabase {
       final total = (m['projectCount'] as int?) ?? 0;
       final paid = (m['paidCount'] as int?) ?? 0;
       final archived = await isMonthArchived(month);
+
+      double totalUsd = (m['totalUsd'] as num?)?.toDouble() ?? 0.0;
+      double totalSecond = (m['totalSecond'] as num?)?.toDouble() ?? 0.0;
+      String secondCurrency = m['secondCurrency'] as String? ?? 'XAF';
+
+      if (archived) {
+        final stored = await getArchivedMonthTotals(month);
+        if (stored != null) {
+          totalUsd = stored.totalUsd;
+          totalSecond = stored.totalSecond;
+          secondCurrency = stored.secondCurrency;
+        }
+      }
+
       results.add((
         month: month,
         allPaid: total > 0 && paid == total,
         isArchived: archived,
-        totalXaf: (m['totalXaf'] as num?)?.toDouble() ?? 0.0,
+        totalUsd: totalUsd,
+        totalSecond: totalSecond,
+        secondCurrency: secondCurrency,
         projectCount: total,
         paidCount: paid,
       ));
@@ -645,21 +693,29 @@ class IncomeDatabase {
       where: 'month = ?',
       whereArgs: [month],
     );
+    await clearMonthArchived(month);
   }
 
-  /// Marks a single snapshot as paid with its final exchange rate.
+  /// Marks a single snapshot as paid with its final exchange rates.
+  /// Also freezes the [secondCurrency] code so the label is immutable.
   Future<void> closeSnapshot({
     required int snapshotId,
-    required double baseToXafRate,
-    required double totalIncomeXaf,
+    required double baseToSecondRate,
+    required double totalIncomeSecond,
+    required double baseToUsdRate,
+    required double totalIncomeUsd,
+    required String secondCurrency,
   }) async {
     final db = await database;
     await db.update(
       _snapshotsTable,
       {
         'isClosed': 1,
-        'baseToXafRate': baseToXafRate,
-        'totalIncomeXaf': totalIncomeXaf,
+        'baseToXafRate': baseToSecondRate,
+        'totalIncomeXaf': totalIncomeSecond,
+        'baseToUsdRate': baseToUsdRate,
+        'totalIncomeUsd': totalIncomeUsd,
+        'secondCurrency': secondCurrency,
         'closedAt': DateTime.now().toUtc().toIso8601String(),
       },
       where: 'id = ?',
@@ -669,6 +725,49 @@ class IncomeDatabase {
 
   Future<void> setMonthArchived(String month) =>
       _setConfigString('month_archived_$month', '1');
+
+  /// Stores the immutable totals for an archived month. Call before
+  /// [setMonthArchived]. These values are displayed as-is; no conversion.
+  Future<void> setArchivedMonthTotals({
+    required String month,
+    required double totalUsd,
+    required double totalSecond,
+    required String secondCurrency,
+  }) async {
+    await _setConfigDouble('month_total_usd_$month', totalUsd);
+    await _setConfigDouble('month_total_second_$month', totalSecond);
+    await _setConfigString('month_total_second_currency_$month', secondCurrency);
+  }
+
+  Future<({double totalUsd, double totalSecond, String secondCurrency})?>
+      getArchivedMonthTotals(String month) async {
+    final usd = await _getConfigDouble('month_total_usd_$month');
+    final second = await _getConfigDouble('month_total_second_$month');
+    final currency = await _getConfigString('month_total_second_currency_$month');
+    if (usd == null && second == null && currency == null) return null;
+    return (
+      totalUsd: usd ?? 0,
+      totalSecond: second ?? 0,
+      secondCurrency: currency ?? 'XAF',
+    );
+  }
+
+  Future<void> clearMonthArchived(String month) async {
+    final db = await database;
+    final keys = [
+      'month_archived_$month',
+      'month_total_usd_$month',
+      'month_total_second_$month',
+      'month_total_second_currency_$month',
+    ];
+    for (final key in keys) {
+      await db.delete(
+        _configTable,
+        where: '$_configKeyColumn = ?',
+        whereArgs: [key],
+      );
+    }
+  }
 
   Future<bool> isMonthArchived(String month) async {
     final val = await _getConfigString('month_archived_$month');

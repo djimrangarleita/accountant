@@ -4,10 +4,10 @@ import 'package:intl/intl.dart';
 import '../app_secrets.dart';
 import '../exchange/exchange_rate_client.dart';
 import '../exchange/open_exchange_rates_service.dart';
+import '../exchange/snapshot_fx_aggregator.dart';
 import '../income_database.dart';
 import '../monthly_snapshot.dart';
 import '../widgets/currency_badge.dart';
-import '../widgets/skeleton_box.dart';
 import 'add_archive_entry_page.dart';
 
 class ArchiveMonthDetailPage extends StatefulWidget {
@@ -26,10 +26,18 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
   bool _isLoading = true;
   List<MonthlySnapshot> _snapshots = const [];
   bool _isMonthArchived = false;
+  String _secondCurrency = 'XAF';
 
   ExchangeRateClient? _exchangeClient;
-  double? _xafToUsdRate;
-  bool _isLoadingRate = false;
+  bool _isLoadingFx = false;
+  String? _fxError;
+  double? _liveTotalUsd;
+  double? _liveTotalSecond;
+  Map<int, double> _livePerSnapshotSecond = const {};
+
+  double? _archivedTotalUsd;
+  double? _archivedTotalSecond;
+  String? _archivedSecondCurrency;
 
   bool get _allPaid =>
       _snapshots.isNotEmpty && _snapshots.every((s) => s.isClosed);
@@ -53,39 +61,66 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
 
   Future<void> _load() async {
     final db = IncomeDatabase.instance;
+    final secondCurrency = await db.getSecondCurrency();
     final snapshots = await db.getSnapshotsForMonth(widget.month);
     final archived = await db.isMonthArchived(widget.month);
+    double? archivedUsd;
+    double? archivedSecond;
+    String? archivedCurrency;
+    if (archived) {
+      final stored = await db.getArchivedMonthTotals(widget.month);
+      archivedUsd = stored?.totalUsd;
+      archivedSecond = stored?.totalSecond;
+      archivedCurrency = stored?.secondCurrency;
+    }
     if (!mounted) return;
     setState(() {
+      _secondCurrency = secondCurrency;
       _snapshots = snapshots;
       _isMonthArchived = archived;
+      _archivedTotalUsd = archivedUsd;
+      _archivedTotalSecond = archivedSecond;
+      _archivedSecondCurrency = archivedCurrency;
       _isLoading = false;
     });
-    _fetchXafToUsdRate();
+
+    if (!archived) {
+      await _computeLiveAggregates();
+    }
   }
 
-  Future<void> _fetchXafToUsdRate() async {
-    if (_exchangeClient == null) return;
-    setState(() => _isLoadingRate = true);
+  Future<void> _computeLiveAggregates() async {
+    final client = _exchangeClient;
+    if (client == null) {
+      setState(() => _fxError = 'FX disabled');
+      return;
+    }
+
+    setState(() {
+      _isLoadingFx = true;
+      _fxError = null;
+    });
+
     try {
-      final db = IncomeDatabase.instance;
-      final cached = await db.getCachedFxRate(from: 'XAF', to: 'USD');
-      final now = DateTime.now().toUtc();
-      double rate;
-      if (cached != null && now.difference(cached.asOf).inMinutes < 60) {
-        rate = cached.rate;
-      } else {
-        final quote = await _exchangeClient!.getRate(from: 'XAF', to: 'USD');
-        await db.setCachedFxRate(
-            from: 'XAF', to: 'USD', rate: quote.rate, asOf: quote.asOf);
-        rate = quote.rate;
-      }
+      final result = await computeSnapshotAggregates(
+        snapshots: _snapshots,
+        secondCurrency: _secondCurrency,
+        client: client,
+        db: IncomeDatabase.instance,
+      );
       if (!mounted) return;
-      setState(() => _xafToUsdRate = rate);
-    } on Object catch (_) {
-      // Rate unavailable — show '—' for USD
-    } finally {
-      if (mounted) setState(() => _isLoadingRate = false);
+      setState(() {
+        _liveTotalUsd = result.totalUsd;
+        _liveTotalSecond = result.totalSecond;
+        _livePerSnapshotSecond = result.perSnapshotSecond;
+        _isLoadingFx = false;
+      });
+    } on Object catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _fxError = e.toString();
+        _isLoadingFx = false;
+      });
     }
   }
 
@@ -153,15 +188,21 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => _FinalExchangeRateSheet(snapshot: snapshot),
+      builder: (_) => _FinalExchangeRateSheet(
+        snapshot: snapshot,
+        secondCurrency: _secondCurrency,
+      ),
     );
     if (result == null || !mounted) return;
 
     try {
       await IncomeDatabase.instance.closeSnapshot(
         snapshotId: id,
-        baseToXafRate: result.rate,
-        totalIncomeXaf: result.totalXaf,
+        baseToSecondRate: result.secondRate,
+        totalIncomeSecond: result.totalSecond,
+        baseToUsdRate: result.usdRate,
+        totalIncomeUsd: result.totalUsd,
+        secondCurrency: _secondCurrency,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -187,14 +228,22 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
 
   // ── Widgets ──
 
+  /// For the summary label: if archived, use the stored currency; otherwise
+  /// use the current global setting.
+  String get _summarySecondCurrency =>
+      _archivedSecondCurrency ?? _secondCurrency;
+
   Widget _buildSummaryCard() {
-    double totalXaf = 0;
-    for (final s in _snapshots) {
-      totalXaf += s.totalIncomeXaf;
+    final double displayUsd;
+    final double displaySecond;
+
+    if (_isMonthArchived) {
+      displayUsd = _archivedTotalUsd ?? 0;
+      displaySecond = _archivedTotalSecond ?? 0;
+    } else {
+      displayUsd = _liveTotalUsd ?? 0;
+      displaySecond = _liveTotalSecond ?? 0;
     }
-    final totalUsd = (_xafToUsdRate != null && totalXaf > 0)
-        ? totalXaf * _xafToUsdRate!
-        : null;
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF2A2A2A) : Colors.black;
@@ -216,7 +265,7 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
             children: [
               Expanded(
                 child: Text(
-                  'Expected Income · $_monthLabel',
+                  'Income · $_monthLabel',
                   style: TextStyle(
                     color: cardFg.withOpacity(0.7),
                     fontSize: 13,
@@ -272,11 +321,26 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
             ],
           ),
           const SizedBox(height: 12),
-          if (_isLoadingRate)
-            const SkeletonBox(width: 200, height: 32)
-          else
+          if (!_isMonthArchived && _isLoadingFx)
+            SizedBox(
+              height: 28,
+              width: 28,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: cardFg.withOpacity(0.5),
+              ),
+            )
+          else if (!_isMonthArchived && _fxError != null)
             Text(
-              totalUsd != null ? _formatMoney(totalUsd, 'USD') : '—',
+              'FX rates unavailable',
+              style: TextStyle(
+                color: cardFg.withOpacity(0.5),
+                fontSize: 14,
+              ),
+            )
+          else ...[
+            Text(
+              displayUsd > 0 ? _formatMoney(displayUsd, 'USD') : '—',
               style: const TextStyle(
                 color: cardFg,
                 fontSize: 28,
@@ -284,15 +348,18 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                 letterSpacing: -0.5,
               ),
             ),
-          const SizedBox(height: 4),
-          Text(
-            totalXaf > 0 ? _formatMoney(totalXaf, 'XAF') : '—',
-            style: TextStyle(
-              color: cardFg.withOpacity(0.6),
-              fontSize: 16,
-              fontWeight: FontWeight.w400,
+            const SizedBox(height: 4),
+            Text(
+              displaySecond > 0
+                  ? _formatMoney(displaySecond, _summarySecondCurrency)
+                  : '—',
+              style: TextStyle(
+                color: cardFg.withOpacity(0.6),
+                fontSize: 16,
+                fontWeight: FontWeight.w400,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -443,7 +510,8 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                       children: [
                         Text(
                           _formatMoney(
-                              snapshot.totalIncomeBase, snapshot.baseCurrency),
+                              snapshot.totalIncomeBase,
+                              snapshot.baseCurrency),
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w700,
@@ -451,18 +519,70 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
                           ),
                         ),
                         const SizedBox(height: 2),
-                        Text(
-                          snapshot.totalIncomeXaf > 0
-                              ? _formatMoney(snapshot.totalIncomeXaf, 'XAF')
-                              : '—',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withOpacity(0.5),
-                          ),
-                        ),
+                        Builder(builder: (context) {
+                          if (isPaid) {
+                            return Text(
+                              snapshot.totalIncomeXaf > 0
+                                  ? _formatMoney(
+                                      snapshot.totalIncomeXaf,
+                                      snapshot.secondCurrency)
+                                  : '—',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.5),
+                              ),
+                            );
+                          }
+                          final hasStoredMatch =
+                              snapshot.secondCurrency.toUpperCase() ==
+                                      _secondCurrency.toUpperCase() &&
+                                  snapshot.totalIncomeXaf > 0;
+                          if (hasStoredMatch) {
+                            return Text(
+                              _formatMoney(
+                                  snapshot.totalIncomeXaf, _secondCurrency),
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.5),
+                              ),
+                            );
+                          }
+                          final liveAmount =
+                              snapshot.id != null
+                                  ? _livePerSnapshotSecond[snapshot.id!]
+                                  : null;
+                          if (_isLoadingFx) {
+                            return SizedBox(
+                              height: 14,
+                              width: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.3),
+                              ),
+                            );
+                          }
+                          return Text(
+                            liveAmount != null && liveAmount > 0
+                                ? _formatMoney(liveAmount, _secondCurrency)
+                                : '—',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.5),
+                            ),
+                          );
+                        }),
                       ],
                     ),
                   ),
@@ -574,9 +694,47 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
   }
 
   Future<void> _archiveMonth() async {
-    await IncomeDatabase.instance.setMonthArchived(widget.month);
+    final client = _exchangeClient;
+    if (client == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('FX is disabled. Enable it to archive with mixed currencies.'),
+        ),
+      );
+      return;
+    }
+
+    SnapshotFxResult result;
+    try {
+      result = await computeSnapshotAggregates(
+        snapshots: _snapshots,
+        secondCurrency: _secondCurrency,
+        client: client,
+        db: IncomeDatabase.instance,
+      );
+
+      await IncomeDatabase.instance.setArchivedMonthTotals(
+        month: widget.month,
+        totalUsd: result.totalUsd,
+        totalSecond: result.totalSecond,
+        secondCurrency: _secondCurrency,
+      );
+      await IncomeDatabase.instance.setMonthArchived(widget.month);
+    } on Object catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to archive: $e')),
+      );
+      return;
+    }
+
     if (!mounted) return;
-    setState(() => _isMonthArchived = true);
+    setState(() {
+      _isMonthArchived = true;
+      _archivedTotalUsd = result.totalUsd;
+      _archivedTotalSecond = result.totalSecond;
+      _archivedSecondCurrency = _secondCurrency;
+    });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$_monthLabel archived')),
     );
@@ -614,15 +772,13 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
           _monthLabel,
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
-        actions: [
-          if (!_allPaid && !_isMonthArchived)
-            IconButton(
-              icon: const Icon(Icons.add),
-              onPressed: _addEntry,
-              tooltip: 'Add entry',
-            ),
-        ],
       ),
+      floatingActionButton: (!_isMonthArchived && !_isLoading)
+          ? FloatingActionButton(
+              onPressed: _addEntry,
+              child: const Icon(Icons.add),
+            )
+          : null,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Column(
@@ -648,15 +804,26 @@ class _ArchiveMonthDetailPageState extends State<ArchiveMonthDetailPage> {
 }
 
 class _PayResult {
-  const _PayResult({required this.rate, required this.totalXaf});
-  final double rate;
-  final double totalXaf;
+  const _PayResult({
+    required this.secondRate,
+    required this.totalSecond,
+    required this.usdRate,
+    required this.totalUsd,
+  });
+  final double secondRate;
+  final double totalSecond;
+  final double usdRate;
+  final double totalUsd;
 }
 
 class _FinalExchangeRateSheet extends StatefulWidget {
-  const _FinalExchangeRateSheet({required this.snapshot});
+  const _FinalExchangeRateSheet({
+    required this.snapshot,
+    required this.secondCurrency,
+  });
 
   final MonthlySnapshot snapshot;
+  final String secondCurrency;
 
   @override
   State<_FinalExchangeRateSheet> createState() =>
@@ -664,28 +831,58 @@ class _FinalExchangeRateSheet extends StatefulWidget {
 }
 
 class _FinalExchangeRateSheetState extends State<_FinalExchangeRateSheet> {
-  late final TextEditingController _rateController;
+  late final TextEditingController _secondRateController;
+  late final TextEditingController _usdRateController;
+
+  bool get _baseIsUsd => widget.snapshot.baseCurrency.toUpperCase() == 'USD';
+  bool get _baseIsSecond =>
+      widget.snapshot.baseCurrency.toUpperCase() ==
+      widget.secondCurrency.toUpperCase();
 
   @override
   void initState() {
     super.initState();
-    _rateController = TextEditingController(
-      text: widget.snapshot.baseToXafRate > 0
-          ? widget.snapshot.baseToXafRate.toString()
-          : '',
+    _secondRateController = TextEditingController(
+      text: _baseIsSecond
+          ? '1'
+          : widget.snapshot.baseToXafRate > 0
+              ? widget.snapshot.baseToXafRate.toString()
+              : '',
+    );
+    _usdRateController = TextEditingController(
+      text: _baseIsUsd
+          ? '1'
+          : widget.snapshot.baseToUsdRate > 0
+              ? widget.snapshot.baseToUsdRate.toString()
+              : '',
     );
   }
 
   @override
   void dispose() {
-    _rateController.dispose();
+    _secondRateController.dispose();
+    _usdRateController.dispose();
     super.dispose();
   }
 
-  double get _rate =>
-      double.tryParse(_rateController.text.trim().replaceAll(',', '')) ?? 0;
+  double get _secondRate =>
+      _baseIsSecond
+          ? 1.0
+          : double.tryParse(
+                  _secondRateController.text.trim().replaceAll(',', '')) ??
+              0;
 
-  double get _totalXaf => widget.snapshot.totalIncomeBase * _rate;
+  double get _usdRate =>
+      _baseIsUsd
+          ? 1.0
+          : double.tryParse(
+                  _usdRateController.text.trim().replaceAll(',', '')) ??
+              0;
+
+  double get _totalSecond => widget.snapshot.totalIncomeBase * _secondRate;
+  double get _totalUsd => widget.snapshot.totalIncomeBase * _usdRate;
+
+  bool get _isValid => _secondRate > 0 && _usdRate > 0;
 
   String _formatMoney(double amount, String currency) {
     final code = currency.toUpperCase();
@@ -703,22 +900,28 @@ class _FinalExchangeRateSheetState extends State<_FinalExchangeRateSheet> {
   }
 
   void _confirm() {
-    if (_rate <= 0) {
+    if (!_isValid) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid exchange rate')),
+        const SnackBar(content: Text('Please enter valid exchange rates')),
       );
       return;
     }
-    Navigator.of(context).pop(_PayResult(rate: _rate, totalXaf: _totalXaf));
+    Navigator.of(context).pop(_PayResult(
+      secondRate: _secondRate,
+      totalSecond: _totalSecond,
+      usdRate: _usdRate,
+      totalUsd: _totalUsd,
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
     final snap = widget.snapshot;
     final base = snap.baseCurrency.toUpperCase();
+    final second = widget.secondCurrency;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
-    return Padding(
+    return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(24, 16, 24, 16 + bottomInset),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -741,7 +944,7 @@ class _FinalExchangeRateSheetState extends State<_FinalExchangeRateSheet> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Enter the final exchange rate to calculate the revenue in XAF.',
+            'Confirm the final exchange rates to store the revenue.',
             style: TextStyle(
               fontSize: 13,
               color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
@@ -783,18 +986,34 @@ class _FinalExchangeRateSheetState extends State<_FinalExchangeRateSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          TextField(
-            controller: _rateController,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            autofocus: true,
-            decoration: InputDecoration(
-              labelText: '1 $base = ? XAF',
-              hintText: 'Final exchange rate',
+          if (!_baseIsUsd) ...[
+            TextField(
+              controller: _usdRateController,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: '1 $base = ? USD',
+                hintText: 'Exchange rate to USD',
+              ),
+              onChanged: (_) => setState(() {}),
             ),
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 12),
+          ],
+          if (!_baseIsSecond) ...[
+            TextField(
+              controller: _secondRateController,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              autofocus: _baseIsUsd,
+              decoration: InputDecoration(
+                labelText: '1 $base = ? $second',
+                hintText: 'Exchange rate to $second',
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 16),
+          ],
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(14),
@@ -807,7 +1026,7 @@ class _FinalExchangeRateSheetState extends State<_FinalExchangeRateSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Revenue in XAF',
+                  'Revenue',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
@@ -819,11 +1038,22 @@ class _FinalExchangeRateSheetState extends State<_FinalExchangeRateSheet> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  _rate > 0 ? _formatMoney(_totalXaf, 'XAF') : '—',
+                  _usdRate > 0 ? _formatMoney(_totalUsd, 'USD') : '—',
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
                     letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _secondRate > 0 ? _formatMoney(_totalSecond, second) : '—',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.5),
                   ),
                 ),
               ],
@@ -833,7 +1063,7 @@ class _FinalExchangeRateSheetState extends State<_FinalExchangeRateSheet> {
           SizedBox(
             width: double.infinity,
             child: FilledButton(
-              onPressed: _rate > 0 ? _confirm : null,
+              onPressed: _isValid ? _confirm : null,
               child: const Text('Confirm & Mark as Paid'),
             ),
           ),

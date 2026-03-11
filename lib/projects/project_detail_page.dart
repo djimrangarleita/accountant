@@ -40,7 +40,8 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   double? _totalIncomeBase;
   bool _isLoadingRate = false;
   String? _fxError;
-  double? _baseToXafRate;
+  double? _baseToSecondRate;
+  String _secondCurrency = 'XAF';
 
   ExchangeRateClient? _exchangeClient;
 
@@ -90,13 +91,14 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   }
 
   Future<void> _load() async {
-    final project = await IncomeDatabase.instance.getProjectById(
-      widget.projectId,
-    );
+    final db = IncomeDatabase.instance;
+    final project = await db.getProjectById(widget.projectId);
+    final secondCurrency = await db.getSecondCurrency();
 
     if (!mounted) return;
     setState(() {
       _project = project;
+      _secondCurrency = secondCurrency;
       _isLoading = false;
     });
 
@@ -232,7 +234,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     setState(() {
       _project = updated;
       _totalIncomeBase = updated.totalIncome;
-      _baseToXafRate = null;
+      _baseToSecondRate = null;
     });
 
     await _updateConversion();
@@ -274,7 +276,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     setState(() {
       _project = project;
       _totalIncomeBase = project.totalIncome;
-      _baseToXafRate = null;
+      _baseToSecondRate = null;
     });
     await _updateConversion();
   }
@@ -321,7 +323,16 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     });
 
     final from = project.baseCurrency.toUpperCase();
-    const to = 'XAF';
+    final to = _secondCurrency;
+
+    if (from == to) {
+      if (!mounted) return;
+      setState(() {
+        _baseToSecondRate = 1.0;
+        _isLoadingRate = false;
+      });
+      return;
+    }
 
     try {
       final db = IncomeDatabase.instance;
@@ -331,7 +342,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
       if (cached != null && now.difference(cached.asOf).inMinutes < 60) {
         if (!mounted) return;
         setState(() {
-          _baseToXafRate = _applyFxAdjustment(cached.rate);
+          _baseToSecondRate = _applyFxAdjustment(cached.rate);
           _isLoadingRate = false;
         });
         return;
@@ -343,7 +354,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
 
       if (!mounted) return;
       setState(() {
-        _baseToXafRate = _applyFxAdjustment(quote.rate);
+        _baseToSecondRate = _applyFxAdjustment(quote.rate);
         _isLoadingRate = false;
       });
     } on Object catch (e) {
@@ -437,13 +448,14 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
             )
           else if (_isLoadingRate)
             const SkeletonBox(width: 140, height: 16)
-          else if (_baseToXafRate != null && _totalIncomeBase != null) ...[
+          else if (_baseToSecondRate != null && _totalIncomeBase != null) ...[
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Expanded(
                   child: Text(
-                    _formatMoney(_totalIncomeBase! * _baseToXafRate!, 'XAF'),
+                    _formatMoney(
+                        _totalIncomeBase! * _baseToSecondRate!, _secondCurrency),
                     style: TextStyle(
                       color: cardFg.withOpacity(0.8),
                       fontSize: 16,
@@ -451,12 +463,12 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                     ),
                   ),
                 ),
-                const CurrencyBadge('XAF'),
+                CurrencyBadge(_secondCurrency),
               ],
             ),
             const SizedBox(height: 4),
             Text(
-              _formatRate(_baseToXafRate!, 'XAF'),
+              _formatRate(_baseToSecondRate!, _secondCurrency),
               style: TextStyle(
                 color: cardFg.withOpacity(0.4),
                 fontSize: 10,
@@ -583,7 +595,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                         _currency = value.trim().isEmpty
                                             ? 'USD'
                                             : value;
-                                        _baseToXafRate = null;
+                                        _baseToSecondRate = null;
                                       });
                                       _onFieldChanged();
                                     },

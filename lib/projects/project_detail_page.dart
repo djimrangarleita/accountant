@@ -149,7 +149,8 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     final rate = double.tryParse(rawRate);
     setState(() {
       _nameError = name.isEmpty ? 'Project name is required' : null;
-      _rateError = (rate == null || rate <= 0) ? 'Enter a valid hourly rate' : null;
+      _rateError =
+          (rate == null || rate <= 0) ? 'Enter a valid hourly rate' : null;
     });
   }
 
@@ -387,8 +388,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.check_circle,
-                        size: 12,
-                        color: cardFg.withOpacity(0.7)),
+                        size: 12, color: cardFg.withOpacity(0.7)),
                     const SizedBox(width: 4),
                     Text(
                       'Saved',
@@ -408,10 +408,9 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
               Expanded(
                 child: Text(
                   _totalIncomeBase != null
-                      ? _formatMoney(
-                          _totalIncomeBase!, project.baseCurrency)
+                      ? _formatMoney(_totalIncomeBase!, project.baseCurrency)
                       : '—',
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: cardFg,
                     fontSize: 24,
                     fontWeight: FontWeight.w700,
@@ -444,8 +443,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
               children: [
                 Expanded(
                   child: Text(
-                    _formatMoney(
-                        _totalIncomeBase! * _baseToXafRate!, 'XAF'),
+                    _formatMoney(_totalIncomeBase! * _baseToXafRate!, 'XAF'),
                     style: TextStyle(
                       color: cardFg.withOpacity(0.8),
                       fontSize: 16,
@@ -528,8 +526,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                   children: [
                     Icon(Icons.delete_outline, size: 20, color: Colors.red),
                     SizedBox(width: 12),
-                    Text('Delete project',
-                        style: TextStyle(color: Colors.red)),
+                    Text('Delete project', style: TextStyle(color: Colors.red)),
                   ],
                 ),
               ),
@@ -607,7 +604,10 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                     'Bank FX adjustment',
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface
+                                          .withOpacity(0.6),
                                     ),
                                   ),
                                   const SizedBox(height: 8),
@@ -673,14 +673,20 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                           'View all time entries',
                                           style: TextStyle(
                                             fontSize: 12,
-                                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface
+                                                .withOpacity(0.4),
                                           ),
                                         ),
                                         const SizedBox(width: 4),
                                         Icon(
                                           Icons.chevron_right,
                                           size: 16,
-                                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                              .withOpacity(0.4),
                                         ),
                                       ],
                                     ),
@@ -741,6 +747,5 @@ class _FieldSnapshot {
       bonus == other.bonus;
 
   @override
-  int get hashCode =>
-      Object.hash(name, rate, currency, fxAdj, bonus);
+  int get hashCode => Object.hash(name, rate, currency, fxAdj, bonus);
 }

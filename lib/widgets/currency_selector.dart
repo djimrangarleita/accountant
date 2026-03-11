@@ -33,10 +33,11 @@ class CurrencySelector extends StatelessWidget {
     return InkWell(
       onTap: () => _openPicker(context, safeValue),
       child: InputDecorator(
-        decoration: decoration ?? InputDecoration(
-          labelText: 'Base currency',
-          border: const OutlineInputBorder(),
-        ),
+        decoration: decoration ??
+            const InputDecoration(
+              labelText: 'Base currency',
+              border: OutlineInputBorder(),
+            ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -133,14 +134,15 @@ class _CurrencyPickerPageState extends State<_CurrencyPickerPage> {
                     itemCount: filtered.length,
                     itemBuilder: (context, index) {
                       final c = filtered[index];
-                      final isSelected =
-                          c.code.toUpperCase() == widget.initialValue.toUpperCase();
+                      final isSelected = c.code.toUpperCase() ==
+                          widget.initialValue.toUpperCase();
                       return ListTile(
                         title: Text(c.code),
                         subtitle: Text(c.name),
                         selected: isSelected,
                         trailing: isSelected
-                            ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
+                            ? Icon(Icons.check,
+                                color: Theme.of(context).colorScheme.primary)
                             : null,
                         onTap: () => Navigator.of(context).pop(c.code),
                       );

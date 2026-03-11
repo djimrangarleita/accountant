@@ -379,7 +379,7 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
           else ...[
             Text(
               _totalUsd != null ? _formatMoney(_totalUsd!, 'USD') : '—',
-              style: TextStyle(
+              style: const TextStyle(
                 color: cardFg,
                 fontSize: 28,
                 fontWeight: FontWeight.w700,
@@ -429,106 +429,125 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
         onTap: () => _openProject(project),
         child: Card(
           margin: const EdgeInsets.symmetric(horizontal: 16),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      project.name,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  CurrencyBadge(project.baseCurrency),
-                  const SizedBox(width: 8),
-                  if (rank <= 3 && _sortedProjects.length > 1)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
                       child: Text(
-                        '#$rank',
-                        style: TextStyle(
-                          fontSize: 10,
+                        project.name,
+                        style: const TextStyle(
+                          fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    CurrencyBadge(project.baseCurrency),
+                    const SizedBox(width: 8),
+                    if (rank <= 3 && _sortedProjects.length > 1)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '#$rank',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.5),
+                          ),
                         ),
                       ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _formatMoney(
+                                project.totalIncome, project.baseCurrency),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          if (_isLoadingTotals)
+                            const SkeletonBox(width: 100, height: 14)
+                          else
+                            Text(
+                              xafAmount != null
+                                  ? _formatMoney(xafAmount, 'XAF')
+                                  : '—',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.5),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          _formatMoney(
-                              project.totalIncome, project.baseCurrency),
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.3,
+                          _formatHours(project.totalHours),
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.6),
                           ),
                         ),
                         const SizedBox(height: 2),
-                        if (_isLoadingTotals)
-                          const SkeletonBox(width: 100, height: 14)
-                        else
-                          Text(
-                            xafAmount != null
-                                ? _formatMoney(xafAmount, 'XAF')
-                                : '—',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                            ),
+                        Text(
+                          '${_formatMoney(project.hourlyRate, project.baseCurrency)}/h',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.4),
                           ),
+                        ),
                       ],
                     ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        _formatHours(project.totalHours),
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${_formatMoney(project.hourlyRate, project.baseCurrency)}/h',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),
-                ],
-              ),
-            ],
+                    const SizedBox(width: 4),
+                    Icon(Icons.chevron_right,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.3)),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -622,7 +641,8 @@ class _ProjectsListPageState extends State<ProjectsListPage> {
             foregroundColor: Theme.of(context).colorScheme.onSurface,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: Theme.of(context).colorScheme.onSurface, width: 1.5),
+              side: BorderSide(
+                  color: Theme.of(context).colorScheme.onSurface, width: 1.5),
             ),
             elevation: 0,
             child: const Icon(Icons.add, size: 20),
@@ -724,8 +744,7 @@ class _AddProjectSheetState extends State<_AddProjectSheet> {
           const SizedBox(height: 12),
           TextField(
             controller: _rateController,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(labelText: 'Hourly rate'),
           ),
           const SizedBox(height: 12),

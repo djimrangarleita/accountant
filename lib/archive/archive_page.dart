@@ -4,8 +4,8 @@ import 'package:intl/intl.dart';
 import '../app_secrets.dart';
 import '../exchange/exchange_rate_client.dart';
 import '../exchange/open_exchange_rates_service.dart';
+import '../exchange/snapshot_fx_aggregator.dart';
 import '../income_database.dart';
-import '../widgets/skeleton_box.dart';
 import 'add_archive_entry_page.dart';
 import 'archive_month_detail_page.dart';
 
@@ -18,13 +18,14 @@ class ArchivePage extends StatefulWidget {
 
 class _ArchivePageState extends State<ArchivePage> {
   bool _isLoading = true;
-  List<({String month, bool allPaid, bool isArchived, double totalXaf, int projectCount, int paidCount})>
+  List<({String month, bool allPaid, bool isArchived, double totalUsd, double totalSecond, String secondCurrency, int projectCount, int paidCount})>
       _months = const [];
 
-  ExchangeRateClient? _exchangeClient;
-  double? _secondToUsdRate;
-  bool _isLoadingRate = false;
   String _secondCurrency = 'XAF';
+
+  ExchangeRateClient? _exchangeClient;
+  Map<String, ({double totalUsd, double totalSecond})> _liveTotals = const {};
+  Set<String> _liveLoadingMonths = const {};
 
   @override
   void initState() {
@@ -51,38 +52,48 @@ class _ArchivePageState extends State<ArchivePage> {
       _months = months;
       _isLoading = false;
     });
-    _fetchSecondToUsdRate();
+
+    await _computeLiveTotals(months);
   }
 
-  Future<void> _fetchSecondToUsdRate() async {
-    if (_exchangeClient == null) return;
-    final second = _secondCurrency;
-    if (second == 'USD') {
-      setState(() => _secondToUsdRate = 1.0);
-      return;
-    }
-    setState(() => _isLoadingRate = true);
-    try {
-      final db = IncomeDatabase.instance;
-      final cached = await db.getCachedFxRate(from: second, to: 'USD');
-      final now = DateTime.now().toUtc();
-      double rate;
-      if (cached != null && now.difference(cached.asOf).inMinutes < 60) {
-        rate = cached.rate;
-      } else {
-        final quote =
-            await _exchangeClient!.getRate(from: second, to: 'USD');
-        await db.setCachedFxRate(
-            from: second, to: 'USD', rate: quote.rate, asOf: quote.asOf);
-        rate = quote.rate;
+  Future<void> _computeLiveTotals(
+    List<({String month, bool allPaid, bool isArchived, double totalUsd, double totalSecond, String secondCurrency, int projectCount, int paidCount})> months,
+  ) async {
+    final client = _exchangeClient;
+    if (client == null) return;
+
+    final nonArchived = months.where((m) => !m.isArchived).toList();
+    if (nonArchived.isEmpty) return;
+
+    final loadingSet = nonArchived.map((m) => m.month).toSet();
+    setState(() => _liveLoadingMonths = loadingSet);
+
+    final db = IncomeDatabase.instance;
+    final results = <String, ({double totalUsd, double totalSecond})>{};
+
+    for (final entry in nonArchived) {
+      try {
+        final snapshots = await db.getSnapshotsForMonth(entry.month);
+        final result = await computeSnapshotAggregates(
+          snapshots: snapshots,
+          secondCurrency: _secondCurrency,
+          client: client,
+          db: db,
+        );
+        results[entry.month] = (
+          totalUsd: result.totalUsd,
+          totalSecond: result.totalSecond,
+        );
+      } on Object {
+        // On FX failure, fall back to stored values for this month.
       }
-      if (!mounted) return;
-      setState(() => _secondToUsdRate = rate);
-    } on Object catch (_) {
-      // Rate unavailable — tiles will show '—' for USD
-    } finally {
-      if (mounted) setState(() => _isLoadingRate = false);
     }
+
+    if (!mounted) return;
+    setState(() {
+      _liveTotals = results;
+      _liveLoadingMonths = const {};
+    });
   }
 
   String _monthLabel(String month) {
@@ -220,11 +231,21 @@ class _ArchivePageState extends State<ArchivePage> {
   }
 
   Widget _buildMonthTile(
-      ({String month, bool allPaid, bool isArchived, double totalXaf, int projectCount, int paidCount}) entry) {
+      ({String month, bool allPaid, bool isArchived, double totalUsd, double totalSecond, String secondCurrency, int projectCount, int paidCount}) entry) {
     final month = entry.month;
-    final totalSecond = entry.totalXaf;
-    final totalUsd =
-        (_secondToUsdRate != null && totalSecond > 0) ? totalSecond * _secondToUsdRate! : null;
+    final secondLabel = entry.isArchived ? entry.secondCurrency : _secondCurrency;
+    final isLiveLoading = _liveLoadingMonths.contains(month);
+
+    final double totalUsd;
+    final double totalSecond;
+    if (entry.isArchived) {
+      totalUsd = entry.totalUsd;
+      totalSecond = entry.totalSecond;
+    } else {
+      final live = _liveTotals[month];
+      totalUsd = live?.totalUsd ?? entry.totalUsd;
+      totalSecond = live?.totalSecond ?? entry.totalSecond;
+    }
 
     final String statusLabel;
     final bool isGreen;
@@ -294,38 +315,44 @@ class _ArchivePageState extends State<ArchivePage> {
                 ],
               ),
               const SizedBox(height: 12),
-              // Bottom row: income on left, chevron on right
               Row(
                 children: [
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (_isLoadingRate)
-                          const SkeletonBox(width: 160, height: 22)
-                        else
-                          Text(
-                            totalUsd != null
-                                ? _formatMoney(totalUsd, 'USD')
-                                : '—',
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.3,
+                    child: isLiveLoading
+                        ? SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
                             ),
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                totalUsd > 0
+                                    ? _formatMoney(totalUsd, 'USD')
+                                    : '—',
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              if (totalSecond > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    _formatMoney(totalSecond, secondLabel),
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
-                        const SizedBox(height: 2),
-                        Text(
-                          totalSecond > 0
-                              ? _formatMoney(totalSecond, _secondCurrency)
-                              : '—',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                          ),
-                        ),
-                      ],
-                    ),
                   ),
                   const SizedBox(width: 4),
                   Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3)),

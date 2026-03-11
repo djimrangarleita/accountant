@@ -17,6 +17,8 @@ class MonthlySnapshot {
     required this.closedAt,
     this.isClosed = true,
     this.secondCurrency = 'XAF',
+    this.baseToUsdRate = 0.0,
+    this.totalIncomeUsd = 0.0,
   });
 
   final int? id;
@@ -37,6 +39,8 @@ class MonthlySnapshot {
   final DateTime closedAt;
   final bool isClosed;
   final String secondCurrency;
+  final double baseToUsdRate;
+  final double totalIncomeUsd;
 
   /// Human-readable month label, e.g. "February 2026".
   String get monthLabel {
@@ -65,6 +69,8 @@ class MonthlySnapshot {
       'closedAt': closedAt.toUtc().toIso8601String(),
       'isClosed': isClosed ? 1 : 0,
       'secondCurrency': secondCurrency,
+      'baseToUsdRate': baseToUsdRate,
+      'totalIncomeUsd': totalIncomeUsd,
     };
   }
 
@@ -86,6 +92,8 @@ class MonthlySnapshot {
       closedAt: DateTime.parse(map['closedAt'] as String),
       isClosed: (map['isClosed'] as int?) != 0,
       secondCurrency: map['secondCurrency'] as String? ?? 'XAF',
+      baseToUsdRate: (map['baseToUsdRate'] as num?)?.toDouble() ?? 0.0,
+      totalIncomeUsd: (map['totalIncomeUsd'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }

@@ -36,6 +36,7 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
 
   final _hoursController = TextEditingController();
   final _bonusController = TextEditingController(text: '0');
+  final _usdRateController = TextEditingController();
   final _secondRateController = TextEditingController();
   String _secondCurrency = 'XAF';
 
@@ -57,6 +58,9 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
       if (snap.baseToXafRate > 0) {
         _secondRateController.text = snap.baseToXafRate.toString();
       }
+      if (snap.baseToUsdRate > 0) {
+        _usdRateController.text = snap.baseToUsdRate.toString();
+      }
     } else {
       _selectedMonth = widget.prefilledMonth ?? _pastMonths.first;
     }
@@ -70,14 +74,22 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
     _rateController.dispose();
     _hoursController.dispose();
     _bonusController.dispose();
+    _usdRateController.dispose();
     _secondRateController.dispose();
     super.dispose();
   }
 
   Future<void> _loadSecondCurrency() async {
-    if (widget.existingSnapshot != null) return;
+    final snap = widget.existingSnapshot;
+    if (snap != null && snap.isClosed) return;
+
     final code = await IncomeDatabase.instance.getSecondCurrency();
     if (!mounted) return;
+
+    if (snap != null && code != snap.secondCurrency) {
+      _secondRateController.clear();
+    }
+
     setState(() => _secondCurrency = code);
   }
 
@@ -134,10 +146,23 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
   double get _bonus =>
       double.tryParse(_bonusController.text.trim().replaceAll(',', '')) ?? 0;
 
+  double get _usdRate =>
+      _currency.toUpperCase() == 'USD'
+          ? 1.0
+          : double.tryParse(
+                  _usdRateController.text.trim().replaceAll(',', '')) ??
+              0;
+
   double get _secondRate =>
-      double.tryParse(_secondRateController.text.trim().replaceAll(',', '')) ?? 0;
+      _currency.toUpperCase() == _secondCurrency.toUpperCase()
+          ? 1.0
+          : double.tryParse(
+                  _secondRateController.text.trim().replaceAll(',', '')) ??
+              0;
 
   double get _totalIncomeBase => _hourlyRate * _hours + _bonus;
+
+  double get _totalIncomeUsd => _totalIncomeBase * _usdRate;
 
   double get _totalIncomeSecond => _totalIncomeBase * _secondRate;
 
@@ -206,6 +231,8 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
         totalIncomeBase: _totalIncomeBase,
         baseToXafRate: _secondRate,
         totalIncomeXaf: _totalIncomeSecond,
+        baseToUsdRate: _usdRate,
+        totalIncomeUsd: _totalIncomeUsd,
         closedAt: existing?.closedAt ?? DateTime.now().toUtc(),
         isClosed: false,
         secondCurrency: _secondCurrency,
@@ -346,7 +373,6 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
   }
 
   Widget _buildResultsCard() {
-    final base = _currency.toUpperCase();
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -368,7 +394,7 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            _formatMoney(_totalIncomeBase, base),
+            _usdRate > 0 ? _formatMoney(_totalIncomeUsd, 'USD') : '—',
             style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w700,
@@ -462,16 +488,31 @@ class _AddArchiveEntryPageState extends State<AddArchiveEntryPage> {
               onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _secondRateController,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                labelText: '1 ${_currency.toUpperCase()} = ? $_secondCurrency',
-                hintText: 'Exchange rate to $_secondCurrency',
+            if (_currency.toUpperCase() != 'USD')
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: TextField(
+                  controller: _usdRateController,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: '1 ${_currency.toUpperCase()} = ? USD',
+                    hintText: 'Exchange rate to USD',
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
               ),
-              onChanged: (_) => setState(() {}),
-            ),
+            if (_currency.toUpperCase() != _secondCurrency.toUpperCase())
+              TextField(
+                controller: _secondRateController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: '1 ${_currency.toUpperCase()} = ? $_secondCurrency',
+                  hintText: 'Exchange rate to $_secondCurrency',
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
             const SizedBox(height: 20),
             _buildResultsCard(),
             const SizedBox(height: 24),
